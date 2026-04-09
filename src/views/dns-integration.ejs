@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+  </head>
+  <body class="bg-grid">
+    <% if (toast && toast.text) { %>
+      <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
+        <div class="toast-title"><%= toast.type === 'error' ? 'Falha na execução' : 'Notificação' %></div>
+        <div class="toast-text"><%= toast.text %></div>
+        <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
+        <div class="toast-bar"></div>
+      </aside>
+    <% } %>
+
+    <header class="topbar">
+      <div>
+        <h1>DNSBlock</h1>
+        <p>Integração DNS protegida por token</p>
+      </div>
+      <div class="topbar-actions">
+        <a href="/dashboard" class="btn-secondary">Dashboard</a>
+        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
+        <form method="post" action="/logout">
+          <button type="submit" class="btn-danger">Sair</button>
+        </form>
+      </div>
+    </header>
+
+    <main class="content-wrap">
+      <% if (message) { %>
+        <div class="alert alert-success"><%= message %></div>
+      <% } %>
+      <% if (error) { %>
+        <div class="alert alert-error"><%= error %></div>
+      <% } %>
+
+      <section class="table-section">
+        <div class="table-header">
+          <div>
+            <h3>Integração DNS com Token</h3>
+            <p class="helper-text token-section-text">Gerencie o acesso do servidor DNS aos endpoints Node sem misturar essa configuração com o restante do dashboard.</p>
+          </div>
+          <div class="token-actions">
+            <form
+              method="post"
+              action="/dns/tokens/generate"
+              data-confirm="<%= activeDnsApiToken ? 'Gerar um novo token vai revogar imediatamente o token atual do DNS. Deseja continuar?' : 'Gerar um novo token para o servidor DNS?' %>"
+              data-destructive="<%= activeDnsApiToken ? 'true' : 'false' %>"
+            >
+              <button type="submit" class="btn-primary"><%= activeDnsApiToken ? 'Gerar novo token' : 'Gerar token DNS' %></button>
+            </form>
+            <% if (activeDnsApiToken) { %>
+              <form method="post" action="/dns/tokens/revoke" data-confirm="Revogar o token atual vai bloquear o acesso do cron DNS até que um novo token seja gerado. Deseja revogar?" data-destructive="true">
+                <button type="submit" class="btn-danger">Revogar token</button>
+              </form>
+            <% } %>
+          </div>
+        </div>
+
+        <div class="token-grid">
+          <article class="token-card">
+            <div class="token-status-row">
+              <span class="token-pill <%= activeDnsApiToken ? 'is-active' : 'is-inactive' %>"><%= activeDnsApiToken ? 'Token ativo' : 'Sem token ativo' %></span>
+            </div>
+
+            <% if (activeDnsApiToken) { %>
+              <p class="helper-text">Identificador visível: <strong><%= activeDnsApiToken.token_prefix %>...</strong></p>
+              <p class="helper-text">Criado em: <strong><%= new Date(activeDnsApiToken.created_at).toLocaleString('pt-BR') %></strong></p>
+              <p class="helper-text">Último uso: <strong><%= activeDnsApiToken.last_used_at ? new Date(activeDnsApiToken.last_used_at).toLocaleString('pt-BR') : 'ainda não utilizado' %></strong></p>
+            <% } else { %>
+              <p class="helper-text">Nenhum token ativo. Os endpoints <strong>/dns/version</strong> e <strong>/dns/blocklist</strong> vão responder 401 até você gerar um token.</p>
+            <% } %>
+
+            <% if (generatedDnsApiToken) { %>
+              <label class="token-label" for="dns-api-token-value">Token gerado agora</label>
+              <div class="token-secret-row">
+                <input id="dns-api-token-value" class="token-secret-input" type="text" value="<%= generatedDnsApiToken %>" readonly />
+                <button type="button" class="btn-secondary" data-copy-target="dns-api-token-value">Copiar</button>
+              </div>
+              <p class="helper-text">Copie este token agora. Por segurança, o valor completo só é exibido nesta tela uma única vez.</p>
+            <% } %>
+          </article>
+
+          <article class="token-card">
+            <p class="token-label">Endpoints protegidos</p>
+            <pre class="token-code">GET <%= dnsEndpointUrls.version %>
+GET <%= dnsEndpointUrls.blocklist %></pre>
+
+            <p class="token-label">Exemplo de autenticação</p>
+            <pre class="token-code">curl -fsS -H "Authorization: Bearer SEU_TOKEN" "<%= dnsEndpointUrls.version %>"
+curl -fsS -H "Authorization: Bearer SEU_TOKEN" "<%= dnsEndpointUrls.blocklist %>" -o /etc/unbound/dnsblock.conf</pre>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <% if (toast && toast.text) { %>
+      <script>
+        (function () {
+          const toast = document.getElementById('app-toast');
+          const closeBtn = document.getElementById('toast-close');
+
+          if (!toast) return;
+
+          function closeToast() {
+            toast.classList.add('toast-out');
+            window.setTimeout(() => toast.remove(), 300);
+          }
+
+          if (closeBtn) {
+            closeBtn.addEventListener('click', closeToast);
+          }
+
+          window.setTimeout(closeToast, 4500);
+        })();
+      </script>
+    <% } %>
+
+    <script>
+      (function () {
+        const copyButtons = document.querySelectorAll('[data-copy-target]');
+
+        async function copyText(value) {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(value);
+            return;
+          }
+
+          const tempInput = document.createElement('input');
+          tempInput.value = value;
+          document.body.appendChild(tempInput);
+          tempInput.select();
+          document.execCommand('copy');
+          document.body.removeChild(tempInput);
+        }
+
+        copyButtons.forEach((button) => {
+          button.addEventListener('click', async function () {
+            const targetId = button.getAttribute('data-copy-target');
+            const target = targetId ? document.getElementById(targetId) : null;
+            if (!target) return;
+
+            const originalText = button.textContent;
+
+            try {
+              await copyText(target.value || target.textContent || '');
+              button.textContent = 'Copiado';
+              window.setTimeout(() => {
+                button.textContent = originalText;
+              }, 1600);
+            } catch (error) {
+              button.textContent = 'Falhou';
+              window.setTimeout(() => {
+                button.textContent = originalText;
+              }, 1600);
+            }
+          });
+        });
+      })();
+    </script>
+
+    <script>
+      (function () {
+        let confirmModal = null;
+        let confirmForm = null;
+
+        function createConfirmModal() {
+          const backdrop = document.createElement('div');
+          backdrop.className = 'confirm-backdrop';
+          backdrop.id = 'confirm-backdrop';
+
+          backdrop.addEventListener('click', function (event) {
+            if (event.target === backdrop) {
+              closeModal();
+            }
+          });
+
+          backdrop.innerHTML = `
+            <div class="confirm-modal" id="confirm-modal">
+              <h3 class="confirm-modal-title" id="confirm-title">Confirmação</h3>
+              <p class="confirm-modal-body" id="confirm-message">Tem certeza?</p>
+              <div class="confirm-modal-actions">
+                <button type="button" class="btn-cancel" id="confirm-cancel">Cancelar</button>
+                <button type="button" class="btn-confirm" id="confirm-ok">Confirmar</button>
+              </div>
+            </div>
+          `;
+
+          document.body.appendChild(backdrop);
+          confirmModal = backdrop;
+
+          document.getElementById('confirm-cancel').addEventListener('click', closeModal);
+          document.getElementById('confirm-ok').addEventListener('click', function () {
+            closeModal();
+            if (confirmForm) {
+              confirmForm.submit();
+            }
+          });
+        }
+
+        function closeModal() {
+          if (confirmModal) {
+            confirmModal.classList.add('out');
+            setTimeout(function () {
+              if (confirmModal) {
+                document.body.removeChild(confirmModal);
+                confirmModal = null;
+              }
+              confirmForm = null;
+            }, 160);
+          }
+        }
+
+        function showConfirmModal(message, form, isDestructive) {
+          if (!confirmModal) {
+            createConfirmModal();
+          }
+
+          confirmForm = form;
+          document.getElementById('confirm-message').textContent = message;
+
+          const btnConfirm = document.getElementById('confirm-ok');
+          if (isDestructive) {
+            btnConfirm.classList.remove('success');
+          } else {
+            btnConfirm.classList.add('success');
+          }
+        }
+
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            closeModal();
+          }
+        });
+
+        const confirmableForms = document.querySelectorAll('form[data-confirm]');
+        confirmableForms.forEach((form) => {
+          form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const confirmMessage = form.getAttribute('data-confirm');
+            const isDestructive = form.getAttribute('data-destructive') === 'true';
+            showConfirmModal(confirmMessage, form, isDestructive);
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>

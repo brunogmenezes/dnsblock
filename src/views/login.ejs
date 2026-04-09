@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+  </head>
+  <body class="bg-grid">
+    <main class="centered-container">
+      <section class="auth-card">
+        <h1>DNSBlock</h1>
+        <p class="subtitle">Gestão de domínios para bloqueio por ofícios da Anatel</p>
+
+        <% if (error) { %>
+          <div class="alert alert-error"><%= error %></div>
+        <% } %>
+
+        <form method="post" action="/login" class="form-stack">
+          <label for="username">Usuário</label>
+          <input id="username" name="username" type="text" required />
+
+          <label for="password">Senha</label>
+          <input id="password" name="password" type="password" required />
+
+          <button type="submit" class="btn-primary">Entrar</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+  </head>
+  <body class="bg-grid">
+    <% if (toast && toast.text) { %>
+      <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
+        <div class="toast-title"><%= toast.type === 'error' ? 'Falha na execução' : 'Notificação' %></div>
+        <div class="toast-text"><%= toast.text %></div>
+        <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
+        <div class="toast-bar"></div>
+      </aside>
+    <% } %>
+
+    <header class="topbar">
+      <div>
+        <h1>DNSBlock</h1>
+        <p>Olá, <strong><%= user.fullName || user.username %></strong></p>
+      </div>
+      <div class="topbar-actions">
+        <a href="/dns/integration" class="btn-secondary">Integração DNS</a>
+        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
+        <form method="post" action="/logout">
+          <button type="submit" class="btn-danger">Sair</button>
+        </form>
+      </div>
+    </header>
+
+    <main class="content-wrap">
+      <% if (message) { %>
+        <div class="alert alert-success"><%= message %></div>
+      <% } %>
+      <% if (error) { %>
+        <div class="alert alert-error"><%= error %></div>
+      <% } %>
+
+      <section class="cards-grid">
+        <article class="metric-card">
+          <p>Total de Domínios</p>
+          <h2><%= totals.total_count %></h2>
+        </article>
+        <article class="metric-card">
+          <p>Com Ofício</p>
+          <h2><%= totals.with_notice_count %></h2>
+        </article>
+        <article class="metric-card">
+          <p>Sem Ofício</p>
+          <h2><%= totals.without_notice_count %></h2>
+        </article>
+      </section>
+
+      <section class="table-section">
+        <div class="table-header">
+          <h3>Relatório de Verificação (nslookup)</h3>
+          <form method="post" action="/reports/nslookup/start">
+            <button type="submit" class="btn-primary">Gerar Relatório em PDF</button>
+          </form>
+        </div>
+
+        <p class="helper-text report-version-note">
+          Versão atual da blocklist: <strong><%= latestBlocklistVersion || 'sem versão' %></strong>.
+          Só é permitido gerar novo relatório quando a versão mudar.
+          <% if (latestReport) { %>
+            Último relatório: versão <strong><%= latestReport.blocklist_version %></strong> com status <strong><%= latestReport.status %></strong>.
+          <% } %>
+        </p>
+
+        <div
+          id="report-progress-panel"
+          class="report-progress-panel"
+          data-job-id="<%= reportJob ? reportJob.id : '' %>"
+          data-job-status="<%= reportJob ? reportJob.status : 'idle' %>"
+        >
+          <div class="report-progress-meta">
+            <strong id="report-status-label">Status: <%= reportJob ? reportJob.status : 'idle' %></strong>
+            <span id="report-progress-label"><%= reportJob ? `${reportJob.progress}%` : '0%' %></span>
+          </div>
+          <div class="report-progress-track">
+            <div id="report-progress-fill" class="report-progress-fill" style="width: <%= reportJob ? reportJob.progress : 0 %>%"></div>
+          </div>
+          <p class="helper-text" id="report-progress-helper">
+            <% if (reportJob) { %>
+              Processados: <%= reportJob.processed %> de <%= reportJob.total %>
+            <% } else { %>
+              Clique em "Gerar Relatório em PDF" para iniciar a verificação de nslookup em background.
+            <% } %>
+          </p>
+          <a
+            id="report-download-link"
+            class="btn-secondary report-download-link <%= reportJob && reportJob.status === 'completed' ? '' : 'is-hidden' %>"
+            href="/reports/nslookup/download<%= reportJob ? `?jobId=${reportJob.id}` : '' %>"
+          >Baixar relatório PDF</a>
+        </div>
+      </section>
+
+      <section class="table-section">
+        <div class="table-header">
+          <h3>Exclusão de Domínios</h3>
+        </div>
+        <div class="delete-actions-grid">
+          <form method="post" action="/domains/delete/by-domain" class="inline-form delete-form" data-confirm="Tem certeza que deseja excluir este domínio?" data-destructive="false">
+            <label for="deleteDomainName">Excluir por nome de domínio</label>
+            <div class="inline-form-row">
+              <input id="deleteDomainName" name="domainName" type="text" placeholder="Ex.: bet.jogo.com" required />
+              <button type="submit" class="btn-danger">Excluir domínio</button>
+            </div>
+          </form>
+
+          <form method="post" action="/domains/delete/by-notice" class="inline-form delete-form" data-confirm="Tem certeza que deseja excluir todos os domínios deste ofício?" data-destructive="false">
+            <label for="deleteNoticeCode">Excluir por número de ofício</label>
+            <div class="inline-form-row">
+              <input id="deleteNoticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" required />
+              <button type="submit" class="btn-danger">Excluir por ofício</button>
+            </div>
+          </form>
+
+          <form method="post" action="/domains/delete/all" class="inline-form delete-form" data-confirm="ATENCAO: isto vai excluir todos os dominios ativos da blocklist. Deseja continuar?" data-destructive="true">
+            <label for="deleteAll">Excluir todos os domínios</label>
+            <div class="inline-form-row">
+              <button type="submit" class="btn-danger">Excluir todos</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="table-section">
+        <div class="table-header">
+          <h3>Domínios Bloqueados e Data da Execução</h3>
+        </div>
+
+        <div class="table-controls" data-table-controls="blocked-table">
+          <input id="blocked-domain-filter" type="text" placeholder="Filtrar por domínio" />
+          <input id="blocked-notice-filter" type="text" placeholder="Filtrar por número de ofício" />
+          <select id="blocked-page-size" aria-label="Itens por página na tabela de bloqueados">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="15">15</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+
+        <div class="table-container">
+          <table id="blocked-table">
+            <thead>
+              <tr>
+                <th>Ofício</th>
+                <th>Domínio</th>
+                <th>Data da Execução</th>
+                <th>Arquivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (blockedGroups.length === 0) { %>
+                <tr class="empty-row">
+                  <td colspan="4">Nenhum domínio bloqueado cadastrado.</td>
+                </tr>
+              <% } %>
+              <% blockedGroups.forEach(function (group, groupIndex) { %>
+                <% const groupId = `blocked-group-${group.noticeId || 'none'}-${groupIndex}`; %>
+                <tr class="group-row" data-group="<%= groupId %>">
+                  <td colspan="4">
+                    <strong><%= group.noticeCode %></strong>
+                    <% if (group.fileName && group.noticeId) { %>
+                      <a href="/notices/<%= group.noticeId %>/download" class="btn-link">Baixar Ofício</a>
+                    <% } else { %>
+                      <span class="muted-inline">Sem arquivo anexado</span>
+                    <% } %>
+                  </td>
+                </tr>
+                <% group.domains.forEach(function (row) { %>
+                  <tr class="data-row" data-group="<%= groupId %>" data-domain="<%= row.domainName.toLowerCase() %>" data-notice="<%= (group.noticeCode || '').toLowerCase() %>">
+                    <td><%= group.noticeCode %></td>
+                    <td><%= row.domainName %></td>
+                    <td><%= new Date(row.executedAt).toLocaleString('pt-BR') %></td>
+                    <td>
+                      <% if (group.fileName && group.noticeId) { %>
+                        <a href="/notices/<%= group.noticeId %>/download" class="btn-link">Download</a>
+                      <% } else { %>
+                        -
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }) %>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-pagination" data-pagination="blocked-table">
+          <button type="button" id="blocked-prev" class="btn-secondary">Anterior</button>
+          <span id="blocked-page-info">Página 1 de 1</span>
+          <button type="button" id="blocked-next" class="btn-secondary">Próxima</button>
+        </div>
+      </section>
+    </main>
+
+    <% if (toast && toast.text) { %>
+      <script>
+        (function () {
+          const toast = document.getElementById('app-toast');
+          const closeBtn = document.getElementById('toast-close');
+
+          if (!toast) return;
+
+          function closeToast() {
+            toast.classList.add('toast-out');
+            window.setTimeout(() => toast.remove(), 300);
+          }
+
+          if (closeBtn) {
+            closeBtn.addEventListener('click', closeToast);
+          }
+
+          window.setTimeout(closeToast, 4500);
+        })();
+      </script>
+    <% } %>
+
+    <script>
+      (function () {
+        function setupTable(options) {
+          const table = document.getElementById(options.tableId);
+          if (!table) return;
+
+          const tbody = table.querySelector('tbody');
+          if (!tbody) return;
+
+          const domainInput = document.getElementById(options.domainFilterId);
+          const noticeInput = document.getElementById(options.noticeFilterId);
+          const pageSizeSelect = document.getElementById(options.pageSizeId);
+          const prevBtn = document.getElementById(options.prevBtnId);
+          const nextBtn = document.getElementById(options.nextBtnId);
+          const pageInfo = document.getElementById(options.pageInfoId);
+
+          const allDataRows = Array.from(tbody.querySelectorAll('tr.data-row'));
+          const allGroupRows = Array.from(tbody.querySelectorAll('tr.group-row'));
+          const emptyRow = tbody.querySelector('tr.empty-row');
+
+          let currentPage = 1;
+          let pageSize = Number(pageSizeSelect ? pageSizeSelect.value : 10);
+
+          function updateTable() {
+            const domainTerm = (domainInput ? domainInput.value : '').trim().toLowerCase();
+            const noticeTerm = (noticeInput ? noticeInput.value : '').trim().toLowerCase();
+
+            const matchedRows = allDataRows.filter((row) => {
+              const domainValue = row.getAttribute('data-domain') || '';
+              const noticeValue = row.getAttribute('data-notice') || '';
+
+              const matchesDomain = !domainTerm || domainValue.includes(domainTerm);
+              const matchesNotice = !noticeTerm || noticeValue.includes(noticeTerm);
+              return matchesDomain && matchesNotice;
+            });
+
+            const totalRows = matchedRows.length;
+            const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+
+            if (currentPage > totalPages) {
+              currentPage = totalPages;
+            }
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const visibleRows = matchedRows.slice(start, end);
+            const visibleGroups = new Set(visibleRows.map((row) => row.getAttribute('data-group')));
+
+            allGroupRows.forEach((row) => {
+              row.style.display = visibleGroups.has(row.getAttribute('data-group')) ? '' : 'none';
+            });
+
+            allDataRows.forEach((row) => {
+              row.style.display = visibleRows.includes(row) ? '' : 'none';
+            });
+
+            if (emptyRow) {
+              emptyRow.style.display = totalRows === 0 ? '' : 'none';
+            }
+
+            if (pageInfo) {
+              pageInfo.textContent = `Página ${currentPage} de ${totalPages} (${totalRows} registros)`;
+            }
+
+            if (prevBtn) {
+              prevBtn.disabled = currentPage <= 1;
+            }
+
+            if (nextBtn) {
+              nextBtn.disabled = currentPage >= totalPages;
+            }
+          }
+
+          if (domainInput) {
+            domainInput.addEventListener('input', function () {
+              currentPage = 1;
+              updateTable();
+            });
+          }
+
+          if (noticeInput) {
+            noticeInput.addEventListener('input', function () {
+              currentPage = 1;
+              updateTable();
+            });
+          }
+
+          if (pageSizeSelect) {
+            pageSizeSelect.addEventListener('change', function () {
+              pageSize = Number(pageSizeSelect.value) || 10;
+              currentPage = 1;
+              updateTable();
+            });
+          }
+
+          if (prevBtn) {
+            prevBtn.addEventListener('click', function () {
+              if (currentPage > 1) {
+                currentPage -= 1;
+                updateTable();
+              }
+            });
+          }
+
+          if (nextBtn) {
+            nextBtn.addEventListener('click', function () {
+              currentPage += 1;
+              updateTable();
+            });
+          }
+
+          updateTable();
+        }
+
+        setupTable({
+          tableId: 'blocked-table',
+          domainFilterId: 'blocked-domain-filter',
+          noticeFilterId: 'blocked-notice-filter',
+          pageSizeId: 'blocked-page-size',
+          prevBtnId: 'blocked-prev',
+          nextBtnId: 'blocked-next',
+          pageInfoId: 'blocked-page-info',
+        });
+      })();
+    </script>
+
+    <script>
+      (function () {
+        const panel = document.getElementById('report-progress-panel');
+        if (!panel) return;
+
+        const statusLabel = document.getElementById('report-status-label');
+        const percentLabel = document.getElementById('report-progress-label');
+        const helperLabel = document.getElementById('report-progress-helper');
+        const fill = document.getElementById('report-progress-fill');
+        const downloadLink = document.getElementById('report-download-link');
+
+        let jobId = panel.getAttribute('data-job-id') || '';
+        let jobStatus = panel.getAttribute('data-job-status') || 'idle';
+
+        function applyStatus(data) {
+          const status = data.status || 'idle';
+          const progress = Number(data.progress || 0);
+          const processed = Number(data.processed || 0);
+          const total = Number(data.total || 0);
+
+          jobStatus = status;
+
+          if (statusLabel) statusLabel.textContent = `Status: ${status}`;
+          if (percentLabel) percentLabel.textContent = `${progress}%`;
+          if (fill) fill.style.width = `${progress}%`;
+
+          if (helperLabel) {
+            if (status === 'failed') {
+              helperLabel.textContent = data.error || 'Falha na execução do relatório.';
+            } else if (status === 'idle') {
+              helperLabel.textContent = 'Nenhum relatório em execução.';
+            } else {
+              helperLabel.textContent = `Processados: ${processed} de ${total}`;
+            }
+          }
+
+          if (downloadLink) {
+            if (status === 'completed' && data.id) {
+              downloadLink.classList.remove('is-hidden');
+              downloadLink.href = `/reports/nslookup/download?jobId=${encodeURIComponent(data.id)}`;
+            } else {
+              downloadLink.classList.add('is-hidden');
+            }
+          }
+        }
+
+        async function pollStatus() {
+          if (!jobId) return;
+
+          try {
+            const response = await fetch(`/reports/nslookup/status?jobId=${encodeURIComponent(jobId)}`, {
+              method: 'GET',
+              headers: { Accept: 'application/json' },
+              credentials: 'same-origin',
+            });
+
+            if (!response.ok) return;
+            const data = await response.json();
+            applyStatus(data);
+
+            if (data.status === 'running' || data.status === 'queued') {
+              window.setTimeout(pollStatus, 2000);
+            }
+          } catch (error) {
+            if (helperLabel) {
+              helperLabel.textContent = 'Não foi possível atualizar o progresso neste momento.';
+            }
+          }
+        }
+
+        if (jobStatus === 'running' || jobStatus === 'queued' || jobStatus === 'completed' || jobStatus === 'failed') {
+          pollStatus();
+        }
+      })();
+    </script>
+
+    <script>
+      // Delete form confirmation dialogs with custom modal
+      (function () {
+        let confirmModal = null;
+        let confirmForm = null;
+
+        function createConfirmModal() {
+          const backdrop = document.createElement('div');
+          backdrop.className = 'confirm-backdrop';
+          backdrop.id = 'confirm-backdrop';
+
+          backdrop.addEventListener('click', function (event) {
+            if (event.target === backdrop) {
+              closeModal();
+            }
+          });
+
+          backdrop.innerHTML = `
+            <div class="confirm-modal" id="confirm-modal">
+              <h3 class="confirm-modal-title" id="confirm-title">Confirmação</h3>
+              <p class="confirm-modal-body" id="confirm-message">Tem certeza?</p>
+              <div class="confirm-modal-actions">
+                <button type="button" class="btn-cancel" id="confirm-cancel">Cancelar</button>
+                <button type="button" class="btn-confirm" id="confirm-ok">Confirmar</button>
+              </div>
+            </div>
+          `;
+
+          document.body.appendChild(backdrop);
+          confirmModal = backdrop;
+
+          document.getElementById('confirm-cancel').addEventListener('click', closeModal);
+          document.getElementById('confirm-ok').addEventListener('click', function () {
+            closeModal();
+            if (confirmForm) {
+              confirmForm.submit();
+            }
+          });
+        }
+
+        function closeModal() {
+          if (confirmModal) {
+            confirmModal.classList.add('out');
+            setTimeout(function () {
+              if (confirmModal) {
+                document.body.removeChild(confirmModal);
+                confirmModal = null;
+              }
+              confirmForm = null;
+            }, 160);
+          }
+        }
+
+        function showConfirmModal(message, form, isDestructive) {
+          if (!confirmModal) {
+            createConfirmModal();
+          }
+
+          confirmForm = form;
+          document.getElementById('confirm-message').textContent = message;
+          
+          const btnConfirm = document.getElementById('confirm-ok');
+          if (isDestructive) {
+            btnConfirm.classList.remove('success');
+          } else {
+            btnConfirm.classList.add('success');
+          }
+        }
+
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            closeModal();
+          }
+        });
+
+        const confirmableForms = document.querySelectorAll('form[data-confirm]');
+        confirmableForms.forEach((form) => {
+          form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const confirmMessage = form.getAttribute('data-confirm');
+            const isDestructive = form.getAttribute('data-destructive') === 'true';
+            showConfirmModal(confirmMessage, form, isDestructive);
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
