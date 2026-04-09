@@ -54,9 +54,9 @@
           <label for="noticeCode">Identificação do Ofício (opcional)</label>
           <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" value="<%= inputNoticeCode || '' %>" />
 
-          <label for="officialFile">Anexo do Ofício (opcional)</label>
-          <input id="officialFile" name="officialFile" type="file" />
-          <p class="helper-text">Você pode anexar PDF, PNG, CSV ou outro tipo de arquivo.</p>
+          <label for="officialFiles">Anexos do Ofício (opcional)</label>
+          <input id="officialFiles" name="officialFiles" type="file" multiple />
+          <p class="helper-text">Você pode anexar vários arquivos (PDF, PNG, CSV ou outro formato).</p>
 
           <button type="submit" class="btn-primary">Salvar Domínios</button>
         </form>

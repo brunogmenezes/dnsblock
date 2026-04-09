@@ -22,6 +22,7 @@
         <p>Olá, <strong><%= user.fullName || user.username %></strong></p>
       </div>
       <div class="topbar-actions">
+        <a href="/reports/nslookup" class="btn-secondary">Relatórios</a>
         <a href="/dns/integration" class="btn-secondary">Integração DNS</a>
         <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
         <form method="post" action="/logout">
@@ -51,50 +52,10 @@
           <p>Sem Ofício</p>
           <h2><%= totals.without_notice_count %></h2>
         </article>
-      </section>
-
-      <section class="table-section">
-        <div class="table-header">
-          <h3>Relatório de Verificação (nslookup)</h3>
-          <form method="post" action="/reports/nslookup/start">
-            <button type="submit" class="btn-primary">Gerar Relatório em PDF</button>
-          </form>
-        </div>
-
-        <p class="helper-text report-version-note">
-          Versão atual da blocklist: <strong><%= latestBlocklistVersion || 'sem versão' %></strong>.
-          Só é permitido gerar novo relatório quando a versão mudar.
-          <% if (latestReport) { %>
-            Último relatório: versão <strong><%= latestReport.blocklist_version %></strong> com status <strong><%= latestReport.status %></strong>.
-          <% } %>
-        </p>
-
-        <div
-          id="report-progress-panel"
-          class="report-progress-panel"
-          data-job-id="<%= reportJob ? reportJob.id : '' %>"
-          data-job-status="<%= reportJob ? reportJob.status : 'idle' %>"
-        >
-          <div class="report-progress-meta">
-            <strong id="report-status-label">Status: <%= reportJob ? reportJob.status : 'idle' %></strong>
-            <span id="report-progress-label"><%= reportJob ? `${reportJob.progress}%` : '0%' %></span>
-          </div>
-          <div class="report-progress-track">
-            <div id="report-progress-fill" class="report-progress-fill" style="width: <%= reportJob ? reportJob.progress : 0 %>%"></div>
-          </div>
-          <p class="helper-text" id="report-progress-helper">
-            <% if (reportJob) { %>
-              Processados: <%= reportJob.processed %> de <%= reportJob.total %>
-            <% } else { %>
-              Clique em "Gerar Relatório em PDF" para iniciar a verificação de nslookup em background.
-            <% } %>
-          </p>
-          <a
-            id="report-download-link"
-            class="btn-secondary report-download-link <%= reportJob && reportJob.status === 'completed' ? '' : 'is-hidden' %>"
-            href="/reports/nslookup/download<%= reportJob ? `?jobId=${reportJob.id}` : '' %>"
-          >Baixar relatório PDF</a>
-        </div>
+        <article class="metric-card">
+          <p>Total de Ofícios</p>
+          <h2><%= totals.total_notices %></h2>
+        </article>
       </section>
 
       <section class="table-section">
@@ -162,9 +123,13 @@
               <% } %>
               <% blockedGroups.forEach(function (group, groupIndex) { %>
                 <% const groupId = `blocked-group-${group.noticeId || 'none'}-${groupIndex}`; %>
-                <tr class="group-row" data-group="<%= groupId %>">
+                <tr class="group-row" data-group="<%= groupId %>" data-group-expanded="true">
                   <td colspan="4">
+                    <button type="button" class="group-toggle-btn" data-group-id="<%= groupId %>" aria-expanded="true">
+                      <span class="group-toggle-icon">▼</span>
+                    </button>
                     <strong><%= group.noticeCode %></strong>
+                    <span class="group-domain-count">(<%= group.domains.length %> domínio<%= group.domains.length !== 1 ? 's' : '' %>)</span>
                     <% if (group.fileName && group.noticeId) { %>
                       <a href="/notices/<%= group.noticeId %>/download" class="btn-link">Baixar Ofício</a>
                     <% } else { %>
@@ -223,6 +188,25 @@
 
     <script>
       (function () {
+        // Setup group toggle functionality
+        const table = document.getElementById('blocked-table');
+        if (!table) return;
+
+        const tbody = table.querySelector('tbody');
+        const groupToggleBtns = tbody.querySelectorAll('.group-toggle-btn');
+        const groupMap = {}; // Store expanded/collapsed state by group id
+
+        // Initialize all groups as expanded
+        groupToggleBtns.forEach((btn) => {
+          const groupId = btn.getAttribute('data-group-id');
+          groupMap[groupId] = true; // true = expanded
+        });
+
+        // Setup pagination variables that will be set by setupTable
+        let currentPage = 1;
+        let pageSize = 10;
+        let updateTableFn = null;
+
         function setupTable(options) {
           const table = document.getElementById(options.tableId);
           if (!table) return;
@@ -241,10 +225,10 @@
           const allGroupRows = Array.from(tbody.querySelectorAll('tr.group-row'));
           const emptyRow = tbody.querySelector('tr.empty-row');
 
-          let currentPage = 1;
-          let pageSize = Number(pageSizeSelect ? pageSizeSelect.value : 10);
+          currentPage = 1;
+          pageSize = Number(pageSizeSelect ? pageSizeSelect.value : 10);
 
-          function updateTable() {
+          updateTableFn = function() {
             const domainTerm = (domainInput ? domainInput.value : '').trim().toLowerCase();
             const noticeTerm = (noticeInput ? noticeInput.value : '').trim().toLowerCase();
 
@@ -274,7 +258,12 @@
             });
 
             allDataRows.forEach((row) => {
-              row.style.display = visibleRows.includes(row) ? '' : 'none';
+              const groupId = row.getAttribute('data-group');
+              const isGroupExpanded = groupMap[groupId];
+              const isRowVisible = visibleRows.includes(row);
+              
+              // Show/hide based on both visibility and expand state
+              row.style.display = (isRowVisible && isGroupExpanded) ? '' : 'none';
             });
 
             if (emptyRow) {
@@ -292,19 +281,19 @@
             if (nextBtn) {
               nextBtn.disabled = currentPage >= totalPages;
             }
-          }
+          };
 
           if (domainInput) {
             domainInput.addEventListener('input', function () {
               currentPage = 1;
-              updateTable();
+              updateTableFn();
             });
           }
 
           if (noticeInput) {
             noticeInput.addEventListener('input', function () {
               currentPage = 1;
-              updateTable();
+              updateTableFn();
             });
           }
 
@@ -312,7 +301,7 @@
             pageSizeSelect.addEventListener('change', function () {
               pageSize = Number(pageSizeSelect.value) || 10;
               currentPage = 1;
-              updateTable();
+              updateTableFn();
             });
           }
 
@@ -320,7 +309,7 @@
             prevBtn.addEventListener('click', function () {
               if (currentPage > 1) {
                 currentPage -= 1;
-                updateTable();
+                updateTableFn();
               }
             });
           }
@@ -328,12 +317,34 @@
           if (nextBtn) {
             nextBtn.addEventListener('click', function () {
               currentPage += 1;
-              updateTable();
+              updateTableFn();
             });
           }
 
-          updateTable();
+          updateTableFn();
         }
+
+        // Setup toggle button listeners AFTER setupTable is defined
+        groupToggleBtns.forEach((btn) => {
+          btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            const groupId = btn.getAttribute('data-group-id');
+            const isExpanded = groupMap[groupId];
+            groupMap[groupId] = !isExpanded;
+
+            // Update button state
+            btn.setAttribute('aria-expanded', String(!isExpanded));
+            const icon = btn.querySelector('.group-toggle-icon');
+            if (icon) {
+              icon.textContent = !isExpanded ? '▼' : '▶';
+            }
+
+            // Reaplicar a lógica de paginação após toggle
+            if (updateTableFn) {
+              updateTableFn();
+            }
+          });
+        });
 
         setupTable({
           tableId: 'blocked-table',
@@ -344,82 +355,6 @@
           nextBtnId: 'blocked-next',
           pageInfoId: 'blocked-page-info',
         });
-      })();
-    </script>
-
-    <script>
-      (function () {
-        const panel = document.getElementById('report-progress-panel');
-        if (!panel) return;
-
-        const statusLabel = document.getElementById('report-status-label');
-        const percentLabel = document.getElementById('report-progress-label');
-        const helperLabel = document.getElementById('report-progress-helper');
-        const fill = document.getElementById('report-progress-fill');
-        const downloadLink = document.getElementById('report-download-link');
-
-        let jobId = panel.getAttribute('data-job-id') || '';
-        let jobStatus = panel.getAttribute('data-job-status') || 'idle';
-
-        function applyStatus(data) {
-          const status = data.status || 'idle';
-          const progress = Number(data.progress || 0);
-          const processed = Number(data.processed || 0);
-          const total = Number(data.total || 0);
-
-          jobStatus = status;
-
-          if (statusLabel) statusLabel.textContent = `Status: ${status}`;
-          if (percentLabel) percentLabel.textContent = `${progress}%`;
-          if (fill) fill.style.width = `${progress}%`;
-
-          if (helperLabel) {
-            if (status === 'failed') {
-              helperLabel.textContent = data.error || 'Falha na execução do relatório.';
-            } else if (status === 'idle') {
-              helperLabel.textContent = 'Nenhum relatório em execução.';
-            } else {
-              helperLabel.textContent = `Processados: ${processed} de ${total}`;
-            }
-          }
-
-          if (downloadLink) {
-            if (status === 'completed' && data.id) {
-              downloadLink.classList.remove('is-hidden');
-              downloadLink.href = `/reports/nslookup/download?jobId=${encodeURIComponent(data.id)}`;
-            } else {
-              downloadLink.classList.add('is-hidden');
-            }
-          }
-        }
-
-        async function pollStatus() {
-          if (!jobId) return;
-
-          try {
-            const response = await fetch(`/reports/nslookup/status?jobId=${encodeURIComponent(jobId)}`, {
-              method: 'GET',
-              headers: { Accept: 'application/json' },
-              credentials: 'same-origin',
-            });
-
-            if (!response.ok) return;
-            const data = await response.json();
-            applyStatus(data);
-
-            if (data.status === 'running' || data.status === 'queued') {
-              window.setTimeout(pollStatus, 2000);
-            }
-          } catch (error) {
-            if (helperLabel) {
-              helperLabel.textContent = 'Não foi possível atualizar o progresso neste momento.';
-            }
-          }
-        }
-
-        if (jobStatus === 'running' || jobStatus === 'queued' || jobStatus === 'completed' || jobStatus === 'failed') {
-          pollStatus();
-        }
       })();
     </script>
 

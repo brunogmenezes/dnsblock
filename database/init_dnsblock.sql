@@ -28,6 +28,17 @@ CREATE TABLE IF NOT EXISTS notices (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS notice_files (
+  id BIGSERIAL PRIMARY KEY,
+  notice_id BIGINT NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
+  original_file_name VARCHAR(255) NULL,
+  stored_file_name VARCHAR(255) NULL,
+  mime_type VARCHAR(150) NULL,
+  file_size BIGINT NULL,
+  uploaded_by BIGINT REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS domains (
   id BIGSERIAL PRIMARY KEY,
   domain_name VARCHAR(253) NOT NULL UNIQUE,
@@ -113,6 +124,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_domains_status ON domains(status);
 CREATE INDEX IF NOT EXISTS idx_domains_notice_id ON domains(notice_id);
+CREATE INDEX IF NOT EXISTS idx_notice_files_notice_id ON notice_files(notice_id);
 CREATE INDEX IF NOT EXISTS idx_domain_executions_domain_id ON domain_executions(domain_id);
 CREATE INDEX IF NOT EXISTS idx_domain_import_invalids_created_by ON domain_import_invalids(created_by);
 CREATE INDEX IF NOT EXISTS idx_blocklist_versions_created_at ON blocklist_versions(created_at);

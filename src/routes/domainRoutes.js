@@ -31,6 +31,34 @@ const upload = multer({
   },
 });
 
+function getUploadedOfficialFiles(req) {
+  const files = [];
+
+  if (req.file) {
+    files.push(req.file);
+  }
+
+  if (req.files && typeof req.files === 'object') {
+    if (Array.isArray(req.files.officialFile)) {
+      files.push(...req.files.officialFile);
+    }
+
+    if (Array.isArray(req.files.officialFiles)) {
+      files.push(...req.files.officialFiles);
+    }
+  }
+
+  return files.filter(Boolean);
+}
+
+function removeUploadedFiles(files) {
+  for (const file of files) {
+    if (file && file.path && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+  }
+}
+
 function setFlash(req, type, text) {
   req.session.flash = { type, text };
 }
@@ -250,16 +278,6 @@ router.get('/', (req, res) => {
 
 router.get('/dashboard', ensureAuthenticated, async (req, res) => {
   const toast = consumeFlash(req);
-  let reportJob = null;
-
-  if (req.session.nslookupReportJobId) {
-    const currentJob = getJob(req.session.nslookupReportJobId);
-    if (currentJob) {
-      reportJob = getPublicJobData(currentJob);
-    } else {
-      delete req.session.nslookupReportJobId;
-    }
-  }
 
   try {
     const [{ rows: totalsRows }, { rows: blockedRows }] = await Promise.all([
@@ -272,67 +290,56 @@ router.get('/dashboard', ensureAuthenticated, async (req, res) => {
          `
       ),
       pool.query(
-        `SELECT
-            d.domain_name,
-            COALESCE(last_exec.executed_at, d.blocked_at, d.created_at) AS executed_at,
-            n.id AS notice_id,
-            n.notice_code,
-            n.original_file_name
-         FROM domains d
-         LEFT JOIN notices n ON n.id = d.notice_id
-         LEFT JOIN LATERAL (
-           SELECT executed_at
-           FROM domain_executions
-           WHERE domain_id = d.id
-           ORDER BY executed_at DESC
-           LIMIT 1
-         ) last_exec ON true
-         WHERE d.is_active = true
-         ORDER BY COALESCE(n.notice_code, 'Sem ofício'), COALESCE(last_exec.executed_at, d.blocked_at, d.created_at) DESC
-         LIMIT 300`
+        `SELECT * FROM (
+          SELECT
+              d.id,
+              d.domain_name,
+              d.is_active,
+              COALESCE(last_exec.executed_at, d.blocked_at, d.created_at) AS executed_at,
+              n.id AS notice_id,
+              n.notice_code,
+              n.original_file_name
+           FROM notices n
+           LEFT JOIN domains d ON d.notice_id = n.id
+           LEFT JOIN LATERAL (
+             SELECT executed_at
+             FROM domain_executions
+             WHERE domain_id = d.id
+             ORDER BY executed_at DESC
+             LIMIT 1
+           ) last_exec ON true
+           
+           UNION ALL
+           
+           SELECT
+              d.id,
+              d.domain_name,
+              d.is_active,
+              COALESCE(last_exec.executed_at, d.blocked_at, d.created_at) AS executed_at,
+              NULL AS notice_id,
+              'Sem ofício' AS notice_code,
+              NULL AS original_file_name
+           FROM domains d
+           LEFT JOIN LATERAL (
+             SELECT executed_at
+             FROM domain_executions
+             WHERE domain_id = d.id
+             ORDER BY executed_at DESC
+             LIMIT 1
+           ) last_exec ON true
+           WHERE d.notice_id IS NULL
+         ) combined
+         ORDER BY notice_code, executed_at DESC
+         LIMIT 2000`
       ),
     ]);
 
-    let latestBlocklistVersion = null;
-    let latestReport = null;
-
-    try {
-      const [versionResult, reportResult] = await Promise.all([
-        pool.query(
-          `SELECT version
-           FROM blocklist_versions
-           ORDER BY id DESC
-           LIMIT 1`
-        ),
-        pool.query(
-          `SELECT job_id, blocklist_version, status, progress, total, processed, report_file_name, error, updated_at
-           FROM blocklist_reports
-           ORDER BY id DESC
-           LIMIT 1`
-        ),
-      ]);
-
-      latestBlocklistVersion = versionResult.rows.length > 0 ? versionResult.rows[0].version : null;
-      latestReport = reportResult.rows.length > 0 ? reportResult.rows[0] : null;
-
-      // If there is no active in-memory job, expose the latest completed report of the current version.
-      if (!reportJob && latestReport && latestBlocklistVersion && latestReport.blocklist_version === latestBlocklistVersion) {
-        reportJob = {
-          id: latestReport.job_id,
-          status: latestReport.status,
-          progress: Number(latestReport.progress || 0),
-          total: Number(latestReport.total || 0),
-          processed: Number(latestReport.processed || 0),
-          error: latestReport.error || null,
-          reportFileName: latestReport.report_file_name || null,
-        };
-      }
-    } catch (queryError) {
-      console.error('Erro ao carregar metadados de versão/relatório:', queryError);
-    }
-
     const groupsMap = new Map();
-    for (const row of blockedRows) {
+    const allRows = Array.from(blockedRows);
+    
+    // Iterar sobre os rows para criar grupos e adicionar domínios ativos
+    for (const row of allRows) {
+      // Criar o grupo baseado em notice_id/notice_code (mesmo se não houver domínio)
       const key = row.notice_id ? `notice-${row.notice_id}` : 'without-notice';
       if (!groupsMap.has(key)) {
         groupsMap.set(key, {
@@ -342,23 +349,26 @@ router.get('/dashboard', ensureAuthenticated, async (req, res) => {
           domains: [],
         });
       }
-
-      groupsMap.get(key).domains.push({
-        domainName: row.domain_name,
-        executedAt: row.executed_at,
-      });
+      
+      // Adicionar domínio apenas se ele existe (row.id não é null) e está ativo
+      if (row.id && row.is_active === true) {
+        groupsMap.get(key).domains.push({
+          domainName: row.domain_name,
+          executedAt: row.executed_at,
+        });
+      }
     }
 
     const blockedGroups = Array.from(groupsMap.values());
 
+    // Contar ofícios (grupos) separando os sem ofício
+    const totalNotices = blockedGroups.filter(g => g.noticeId !== null).length;
+
     return res.render('dashboard', {
       title: 'Dashboard - DNSBlock',
       user: req.session.user,
-      totals: totalsRows[0],
+      totals: { ...totalsRows[0], total_notices: totalNotices },
       blockedGroups,
-      reportJob,
-      latestBlocklistVersion,
-      latestReport,
       message: null,
       error: null,
       toast,
@@ -368,11 +378,8 @@ router.get('/dashboard', ensureAuthenticated, async (req, res) => {
     return res.status(500).render('dashboard', {
       title: 'Dashboard - DNSBlock',
       user: req.session.user,
-      totals: { total_count: 0, with_notice_count: 0, without_notice_count: 0 },
+      totals: { total_count: 0, with_notice_count: 0, without_notice_count: 0, total_notices: 0 },
       blockedGroups: [],
-      reportJob,
-      latestBlocklistVersion: null,
-      latestReport: null,
       message: null,
       error: 'Erro interno ao carregar dashboard.',
       toast,
@@ -412,6 +419,76 @@ router.get('/dns/integration', ensureAuthenticated, async (req, res) => {
   }
 });
 
+router.get('/reports/nslookup', ensureAuthenticated, async (req, res) => {
+  const toast = consumeFlash(req);
+  let reportJob = null;
+
+  if (req.session.nslookupReportJobId) {
+    const currentJob = getJob(req.session.nslookupReportJobId);
+    if (currentJob) {
+      reportJob = getPublicJobData(currentJob);
+    } else {
+      delete req.session.nslookupReportJobId;
+    }
+  }
+
+  try {
+    const [versionResult, reportResult] = await Promise.all([
+      pool.query(
+        `SELECT version
+         FROM blocklist_versions
+         ORDER BY id DESC
+         LIMIT 1`
+      ),
+      pool.query(
+        `SELECT job_id, blocklist_version, status, progress, total, processed, report_file_name, error, updated_at
+         FROM blocklist_reports
+         ORDER BY id DESC
+         LIMIT 1`
+      ),
+    ]);
+
+    let latestBlocklistVersion = versionResult.rows.length > 0 ? versionResult.rows[0].version : null;
+    let latestReport = reportResult.rows.length > 0 ? reportResult.rows[0] : null;
+
+    // If there is no active in-memory job, expose the latest completed report of the current version.
+    if (!reportJob && latestReport && latestBlocklistVersion && latestReport.blocklist_version === latestBlocklistVersion) {
+      reportJob = {
+        id: latestReport.job_id,
+        status: latestReport.status,
+        progress: Number(latestReport.progress || 0),
+        total: Number(latestReport.total || 0),
+        processed: Number(latestReport.processed || 0),
+        error: latestReport.error || null,
+        reportFileName: latestReport.report_file_name || null,
+      };
+    }
+
+    return res.render('reports-nslookup', {
+      title: 'Relatórios - DNSBlock',
+      user: req.session.user,
+      reportJob,
+      latestBlocklistVersion,
+      latestReport,
+      message: null,
+      error: null,
+      toast,
+    });
+  } catch (error) {
+    console.error('Erro ao carregar página de relatórios:', error);
+    return res.status(500).render('reports-nslookup', {
+      title: 'Relatórios - DNSBlock',
+      user: req.session.user,
+      reportJob,
+      latestBlocklistVersion: null,
+      latestReport: null,
+      message: null,
+      error: 'Erro interno ao carregar a página de relatórios.',
+      toast,
+    });
+  }
+});
+
 router.get('/domains/new', ensureAuthenticated, (req, res) => {
   const toast = consumeFlash(req);
   return getInvalidDomainsReview(req.session.user.id)
@@ -444,11 +521,19 @@ router.get('/domains/new', ensureAuthenticated, (req, res) => {
     });
 });
 
-router.post('/domains', ensureAuthenticated, upload.single('officialFile'), async (req, res) => {
+router.post(
+  '/domains',
+  ensureAuthenticated,
+  upload.fields([
+    { name: 'officialFile', maxCount: 10 },
+    { name: 'officialFiles', maxCount: 10 },
+  ]),
+  async (req, res) => {
   const input = req.body.domains || '';
   const noticeCode = (req.body.noticeCode || '').trim();
   const blockStartDate = (req.body.blockStartDate || '').trim();
   const blockEndDate = (req.body.blockEndDate || '').trim();
+  const uploadedFiles = getUploadedOfficialFiles(req);
 
   if (!input.trim()) {
     return res.status(400).render('domains-new', {
@@ -573,11 +658,13 @@ router.post('/domains', ensureAuthenticated, upload.single('officialFile'), asyn
       const reactivatedDomains = uniqueDomains.filter((domain) => inactiveDomainsSet.has(domain));
       const ignoredAlreadyRegistered = uniqueDomains.filter((domain) => activeDomainsSet.has(domain)).length;
       const ignoredTotal = ignoredAlreadyRegistered + duplicatedInPayload + invalidItems.length;
-      const hasNoticeInfo = Boolean(noticeCode || req.file);
+      const hasNoticeInfo = Boolean(noticeCode || uploadedFiles.length > 0);
 
       let noticeId = null;
 
       if (hasNoticeInfo && newDomains.length + reactivatedDomains.length > 0) {
+        const primaryFile = uploadedFiles[0] || null;
+
         const noticeInsert = await client.query(
           `INSERT INTO notices (
               notice_code,
@@ -591,15 +678,37 @@ router.post('/domains', ensureAuthenticated, upload.single('officialFile'), asyn
            RETURNING id`,
           [
             noticeCode || null,
-            req.file ? req.file.originalname : null,
-            req.file ? req.file.filename : null,
-            req.file ? req.file.mimetype : null,
-            req.file ? req.file.size : null,
+            primaryFile ? primaryFile.originalname : null,
+            primaryFile ? primaryFile.filename : null,
+            primaryFile ? primaryFile.mimetype : null,
+            primaryFile ? primaryFile.size : null,
             req.session.user.id,
           ]
         );
 
         noticeId = noticeInsert.rows[0].id;
+
+        for (const file of uploadedFiles) {
+          await client.query(
+            `INSERT INTO notice_files (
+                notice_id,
+                original_file_name,
+                stored_file_name,
+                mime_type,
+                file_size,
+                uploaded_by
+              )
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+              noticeId,
+              file.originalname || null,
+              file.filename || null,
+              file.mimetype || null,
+              file.size || null,
+              req.session.user.id,
+            ]
+          );
+        }
       }
 
       for (const domain of newDomains) {
@@ -704,10 +813,8 @@ router.post('/domains', ensureAuthenticated, upload.single('officialFile'), asyn
 
       await client.query('COMMIT');
 
-      if (req.file && hasNoticeInfo && newDomains.length + reactivatedDomains.length === 0) {
-        if (req.file.path && fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
+      if (uploadedFiles.length > 0 && hasNoticeInfo && newDomains.length + reactivatedDomains.length === 0) {
+        removeUploadedFiles(uploadedFiles);
       }
 
       setFlash(
@@ -717,9 +824,7 @@ router.post('/domains', ensureAuthenticated, upload.single('officialFile'), asyn
       );
     } catch (transactionError) {
       await client.query('ROLLBACK');
-      if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
+      removeUploadedFiles(uploadedFiles);
       throw transactionError;
     } finally {
       client.release();
@@ -741,7 +846,8 @@ router.post('/domains', ensureAuthenticated, upload.single('officialFile'), asyn
       toast: null,
     });
   }
-});
+}
+);
 
 router.get('/notices/:id/download', ensureAuthenticated, async (req, res) => {
   const noticeId = Number(req.params.id);

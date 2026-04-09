@@ -78,6 +78,12 @@ Para habilitar autenticação por token nos endpoints do DNS, execute também:
 psql -U postgres -d dnsblock -f database/migrations/008_create_dns_api_tokens.sql
 ```
 
+Para permitir múltiplos anexos por ofício, execute também:
+
+```bash
+psql -U postgres -d dnsblock -f database/migrations/009_create_notice_files.sql
+```
+
 ## Saída para DNS
 
 - Lista de domínios bloqueados (formato Unbound/BIND, protegida por token):

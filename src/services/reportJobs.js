@@ -104,9 +104,10 @@ function looksLikeUsefulNslookupLine(line) {
     /^(Nome|Name):/i.test(text) ||
     /^Aliases:/i.test(text) ||
     /^(Nao\s+e\s+resposta\s+autoritativa|Não\s+é\s+resposta\s+autoritativa|Non-authoritative answer):/i.test(text) ||
-    /^\*\*\*/.test(text) ||
+    /^\*\*/.test(text) ||
     /^DNS request timed out\./i.test(text) ||
-    /^can't find /i.test(text)
+    /^can't find /i.test(text) ||
+    /can't\s+find\s+.+:\s*(NXDOMAIN|SERVFAIL|REFUSED|NOERROR|Non-existent domain)/i.test(text)
   ) {
     return true;
   }

@@ -449,6 +449,39 @@ tbody tr:hover:not(.group-row) {
   font-size: 0.9rem;
 }
 
+.group-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--brand);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+  font-weight: 700;
+}
+
+.group-toggle-btn:hover {
+  color: var(--brand-hover);
+  transform: scale(1.15);
+}
+
+.group-toggle-icon {
+  display: inline-block;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.group-domain-count {
+  color: #667085;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-left: 6px;
+}
+
 .form-panel {
   padding: 18px;
 }

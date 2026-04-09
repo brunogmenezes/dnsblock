@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+  </head>
+  <body class="bg-grid">
+    <% if (toast && toast.text) { %>
+      <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
+        <div class="toast-title"><%= toast.type === 'error' ? 'Falha na execução' : 'Notificação' %></div>
+        <div class="toast-text"><%= toast.text %></div>
+        <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
+        <div class="toast-bar"></div>
+      </aside>
+    <% } %>
+
+    <header class="topbar">
+      <div>
+        <h1>DNSBlock</h1>
+        <p>Olá, <strong><%= user.fullName || user.username %></strong></p>
+      </div>
+      <div class="topbar-actions">
+        <a href="/dashboard" class="btn-secondary">Dashboard</a>
+        <a href="/dns/integration" class="btn-secondary">Integração DNS</a>
+        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
+        <form method="post" action="/logout">
+          <button type="submit" class="btn-danger">Sair</button>
+        </form>
+      </div>
+    </header>
+
+    <main class="content-wrap">
+      <% if (message) { %>
+        <div class="alert alert-success"><%= message %></div>
+      <% } %>
+      <% if (error) { %>
+        <div class="alert alert-error"><%= error %></div>
+      <% } %>
+
+      <section class="table-section">
+        <div class="table-header">
+          <h3>Relatório de Verificação (nslookup)</h3>
+          <form method="post" action="/reports/nslookup/start">
+            <button type="submit" class="btn-primary">Gerar Relatório em PDF</button>
+          </form>
+        </div>
+
+        <p class="helper-text report-version-note">
+          Versão atual da blocklist: <strong><%= latestBlocklistVersion || 'sem versão' %></strong>.
+          Só é permitido gerar novo relatório quando a versão mudar.
+          <% if (latestReport) { %>
+            Último relatório: versão <strong><%= latestReport.blocklist_version %></strong> com status <strong><%= latestReport.status %></strong>.
+          <% } %>
+        </p>
+
+        <div
+          id="report-progress-panel"
+          class="report-progress-panel"
+          data-job-id="<%= reportJob ? reportJob.id : '' %>"
+          data-job-status="<%= reportJob ? reportJob.status : 'idle' %>"
+        >
+          <div class="report-progress-meta">
+            <strong id="report-status-label">Status: <%= reportJob ? reportJob.status : 'idle' %></strong>
+            <span id="report-progress-label"><%= reportJob ? `${reportJob.progress}%` : '0%' %></span>
+          </div>
+          <div class="report-progress-track">
+            <div id="report-progress-fill" class="report-progress-fill" style="width: <%= reportJob ? reportJob.progress : 0 %>%"></div>
+          </div>
+          <p class="helper-text" id="report-progress-helper">
+            <% if (reportJob) { %>
+              Processados: <%= reportJob.processed %> de <%= reportJob.total %>
+            <% } else { %>
+              Clique em "Gerar Relatório em PDF" para iniciar a verificação de nslookup em background.
+            <% } %>
+          </p>
+          <a
+            id="report-download-link"
+            class="btn-secondary report-download-link <%= reportJob && reportJob.status === 'completed' ? '' : 'is-hidden' %>"
+            href="/reports/nslookup/download<%= reportJob ? `?jobId=${reportJob.id}` : '' %>"
+          >Baixar relatório PDF</a>
+        </div>
+      </section>
+    </main>
+
+    <% if (toast && toast.text) { %>
+      <script>
+        (function () {
+          const toast = document.getElementById('app-toast');
+          const closeBtn = document.getElementById('toast-close');
+
+          if (!toast) return;
+
+          function closeToast() {
+            toast.classList.add('toast-out');
+            window.setTimeout(() => toast.remove(), 300);
+          }
+
+          if (closeBtn) {
+            closeBtn.addEventListener('click', closeToast);
+          }
+
+          window.setTimeout(closeToast, 4500);
+        })();
+      </script>
+    <% } %>
+
+    <script>
+      (function () {
+        const panel = document.getElementById('report-progress-panel');
+        if (!panel) return;
+
+        const statusLabel = document.getElementById('report-status-label');
+        const percentLabel = document.getElementById('report-progress-label');
+        const helperLabel = document.getElementById('report-progress-helper');
+        const fill = document.getElementById('report-progress-fill');
+        const downloadLink = document.getElementById('report-download-link');
+
+        let jobId = panel.getAttribute('data-job-id') || '';
+        let jobStatus = panel.getAttribute('data-job-status') || 'idle';
+
+        function applyStatus(data) {
+          const status = data.status || 'idle';
+          const progress = Number(data.progress || 0);
+          const processed = Number(data.processed || 0);
+          const total = Number(data.total || 0);
+
+          jobStatus = status;
+
+          if (statusLabel) statusLabel.textContent = `Status: ${status}`;
+          if (percentLabel) percentLabel.textContent = `${progress}%`;
+          if (fill) fill.style.width = `${progress}%`;
+
+          if (helperLabel) {
+            if (status === 'failed') {
+              helperLabel.textContent = data.error || 'Falha na execução do relatório.';
+            } else if (status === 'idle') {
+              helperLabel.textContent = 'Nenhum relatório em execução.';
+            } else {
+              helperLabel.textContent = `Processados: ${processed} de ${total}`;
+            }
+          }
+
+          if (downloadLink) {
+            if (status === 'completed' && data.id) {
+              downloadLink.classList.remove('is-hidden');
+              downloadLink.href = `/reports/nslookup/download?jobId=${encodeURIComponent(data.id)}`;
+            } else {
+              downloadLink.classList.add('is-hidden');
+            }
+          }
+        }
+
+        async function pollStatus() {
+          if (!jobId) return;
+
+          try {
+            const response = await fetch(`/reports/nslookup/status?jobId=${encodeURIComponent(jobId)}`, {
+              method: 'GET',
+              headers: { Accept: 'application/json' },
+              credentials: 'same-origin',
+            });
+
+            if (!response.ok) return;
+            const data = await response.json();
+            applyStatus(data);
+
+            if (data.status === 'running' || data.status === 'queued') {
+              window.setTimeout(pollStatus, 2000);
+            }
+          } catch (error) {
+            if (helperLabel) {
+              helperLabel.textContent = 'Não foi possível atualizar o progresso neste momento.';
+            }
+          }
+        }
+
+        if (jobStatus === 'running' || jobStatus === 'queued' || jobStatus === 'completed' || jobStatus === 'failed') {
+          pollStatus();
+        }
+      })();
+    </script>
+  </body>
+</html>
