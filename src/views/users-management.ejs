@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+  </head>
+  <body class="bg-grid">
+    <% if (toast && toast.text) { %>
+      <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
+        <div class="toast-title"><%= toast.type === 'error' ? 'Falha na execução' : 'Notificação' %></div>
+        <div class="toast-text"><%= toast.text %></div>
+        <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
+        <div class="toast-bar"></div>
+      </aside>
+    <% } %>
+
+    <header class="topbar">
+      <div>
+        <h1>Usuários do Sistema</h1>
+        <p>Cadastre acessos e defina a troca obrigatória de senha no primeiro login.</p>
+      </div>
+      <div class="topbar-actions">
+        <a href="/dashboard" class="btn-secondary">Dashboard</a>
+        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
+        <a href="/reports/nslookup" class="btn-secondary">Relatórios</a>
+        <a href="/dns/integration" class="btn-secondary">Integração DNS</a>
+        <% if (user.isAdmin) { %>
+          <a href="/users" class="btn-secondary">Usuários</a>
+        <% } %>
+        <details class="user-dropdown">
+          <summary class="user-dropdown-trigger">
+            <span class="user-dropdown-text">@<%= user.username %></span>
+            <span class="user-dropdown-caret" aria-hidden="true">▾</span>
+          </summary>
+          <div class="user-dropdown-menu">
+            <a href="/account/password" class="user-dropdown-link">Trocar minha senha</a>
+            <form method="post" action="/logout" class="user-dropdown-form">
+              <button type="submit" class="user-dropdown-logout">Sair</button>
+            </form>
+          </div>
+        </details>
+      </div>
+    </header>
+
+    <% const safeUsers = Array.isArray(users) ? users : []; %>
+    <% const totalUsers = safeUsers.length; %>
+    <% const totalAdmins = safeUsers.filter((u) => u.is_admin).length; %>
+    <% const totalActive = safeUsers.filter((u) => u.is_active).length; %>
+    <% const totalForceChange = safeUsers.filter((u) => u.must_change_password).length; %>
+
+    <main class="content-wrap users-layout">
+      <% if (error) { %>
+        <div class="alert alert-error user-page-alert"><%= error %></div>
+      <% } %>
+
+      <section class="cards-grid user-page-alert">
+        <article class="metric-card">
+          <p>Total de Usuários</p>
+          <h2><%= totalUsers %></h2>
+        </article>
+        <article class="metric-card">
+          <p>Administradores</p>
+          <h2><%= totalAdmins %></h2>
+        </article>
+        <article class="metric-card">
+          <p>Usuários Ativos</p>
+          <h2><%= totalActive %></h2>
+        </article>
+        <article class="metric-card">
+          <p>Troca Obrigatória</p>
+          <h2><%= totalForceChange %></h2>
+        </article>
+      </section>
+
+      <section class="form-panel user-create-panel">
+        <div class="table-header">
+          <h3>Novo usuário</h3>
+        </div>
+        <p class="helper-text user-form-lead">Preencha os dados de acesso e defina as permissões iniciais.</p>
+
+        <form method="post" action="/users" class="form-stack user-form-grid" autocomplete="off">
+          <input class="autofill-trap" type="text" name="fakeUsername" autocomplete="username" tabindex="-1" aria-hidden="true" />
+          <input class="autofill-trap" type="password" name="fakePassword" autocomplete="current-password" tabindex="-1" aria-hidden="true" />
+
+          <div class="user-field">
+            <label for="fullName">Nome completo</label>
+            <input id="fullName" name="fullName" type="text" placeholder="Ex.: João da Silva" value="<%= formData.fullName || '' %>" autocomplete="off" required />
+          </div>
+
+          <div class="user-field">
+            <label for="username">Usuário</label>
+            <input id="username" name="username" type="text" placeholder="Ex.: joao.silva" value="<%= formData.username || '' %>" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+          </div>
+
+          <div class="user-form-grid-span user-field">
+            <label for="password">Senha inicial</label>
+            <input id="password" name="password" type="password" autocomplete="new-password" required />
+            <p class="helper-text">Use essa senha para o primeiro acesso do usuário.</p>
+          </div>
+
+          <label class="check-row user-form-grid-span user-check-row">
+            <input name="mustChangePassword" type="checkbox" <%= formData.mustChangePassword ? 'checked' : '' %> />
+            <span>Obrigar troca de senha ao fazer login</span>
+          </label>
+
+          <label class="check-row user-form-grid-span user-check-row">
+            <input name="isAdmin" type="checkbox" <%= formData.isAdmin ? 'checked' : '' %> />
+            <span>Permitir gerenciar usuários</span>
+          </label>
+
+          <div class="user-form-grid-span user-submit-wrap">
+            <button type="submit" class="btn-primary">Criar usuário</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="table-section">
+        <div class="table-header">
+          <h3>Usuários cadastrados</h3>
+        </div>
+
+        <div class="table-controls" data-table-controls="users-table">
+          <input id="users-filter" type="text" placeholder="Filtrar por nome ou usuário" />
+          <select id="users-profile-filter" aria-label="Filtrar por perfil">
+            <option value="">Todos os perfis</option>
+            <option value="admin">Administrador</option>
+            <option value="user">Usuário</option>
+          </select>
+          <select id="users-page-size" aria-label="Usuários por página">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+
+        <div class="table-container">
+          <table id="users-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Usuário</th>
+                <th>Perfil</th>
+                <th>Status</th>
+                <th>Troca obrigatória</th>
+                <th>Última troca</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!users || users.length === 0) { %>
+                <tr class="empty-row">
+                  <td colspan="7">Nenhum usuário cadastrado.</td>
+                </tr>
+              <% } %>
+              <% if (users && users.length > 0) { %>
+                <% users.forEach(function (row) { %>
+                  <tr
+                    class="data-row"
+                    data-name="<%= (row.full_name || '').toLowerCase() %>"
+                    data-username="<%= (row.username || '').toLowerCase() %>"
+                    data-profile="<%= row.is_admin ? 'admin' : 'user' %>"
+                  >
+                    <td><%= row.full_name %></td>
+                    <td><%= row.username %></td>
+                    <td><span class="status-pill <%= row.is_admin ? 'is-admin' : 'is-user' %>"><%= row.is_admin ? 'Administrador' : 'Usuário' %></span></td>
+                    <td><span class="status-pill <%= row.is_active ? 'is-active' : 'is-inactive' %>"><%= row.is_active ? 'Ativo' : 'Inativo' %></span></td>
+                    <td><%= row.must_change_password ? 'Sim' : 'Não' %></td>
+                    <td><%= row.password_changed_at ? new Date(row.password_changed_at).toLocaleString('pt-BR') : 'Nunca' %></td>
+                    <td>
+                      <div class="user-actions-cell">
+                        <a href="/users/<%= row.id %>/edit" class="btn-secondary user-action-btn">Editar</a>
+                        <% if (row.id !== user.id) { %>
+                          <form method="post" action="/users/<%= row.id %>/delete" class="user-inline-form" onsubmit="return confirm('Deseja realmente excluir (inativar) este usuário?');">
+                            <button type="submit" class="btn-danger user-action-btn">Excluir</button>
+                          </form>
+                        <% } else { %>
+                          <span class="helper-text">Você</span>
+                        <% } %>
+                      </div>
+                    </td>
+                  </tr>
+                <% }) %>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-pagination" data-pagination="users-table">
+          <button type="button" id="users-prev" class="btn-secondary">Anterior</button>
+          <span id="users-page-info">Página 1 de 1</span>
+          <button type="button" id="users-next" class="btn-secondary">Próxima</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        const table = document.getElementById('users-table');
+        if (!table) return;
+
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+
+        const textFilter = document.getElementById('users-filter');
+        const profileFilter = document.getElementById('users-profile-filter');
+        const pageSizeSelect = document.getElementById('users-page-size');
+        const prevBtn = document.getElementById('users-prev');
+        const nextBtn = document.getElementById('users-next');
+        const pageInfo = document.getElementById('users-page-info');
+
+        const allRows = Array.from(tbody.querySelectorAll('tr.data-row'));
+        const emptyRow = tbody.querySelector('tr.empty-row');
+
+        let currentPage = 1;
+        let pageSize = Number(pageSizeSelect ? pageSizeSelect.value : 10);
+
+        function updateUsersTable() {
+          const textTerm = (textFilter ? textFilter.value : '').trim().toLowerCase();
+          const profileTerm = (profileFilter ? profileFilter.value : '').trim().toLowerCase();
+
+          const matchedRows = allRows.filter((row) => {
+            const name = row.getAttribute('data-name') || '';
+            const username = row.getAttribute('data-username') || '';
+            const profile = row.getAttribute('data-profile') || '';
+
+            const matchesText = !textTerm || name.includes(textTerm) || username.includes(textTerm);
+            const matchesProfile = !profileTerm || profile === profileTerm;
+
+            return matchesText && matchesProfile;
+          });
+
+          const totalRows = matchedRows.length;
+          const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+          if (currentPage > totalPages) currentPage = totalPages;
+
+          const start = (currentPage - 1) * pageSize;
+          const end = start + pageSize;
+          const visibleRows = matchedRows.slice(start, end);
+
+          allRows.forEach((row) => {
+            row.style.display = visibleRows.includes(row) ? '' : 'none';
+          });
+
+          if (emptyRow) {
+            emptyRow.style.display = totalRows === 0 ? '' : 'none';
+          }
+
+          if (pageInfo) {
+            pageInfo.textContent = `Página ${currentPage} de ${totalPages} (${totalRows} registros)`;
+          }
+
+          if (prevBtn) prevBtn.disabled = currentPage <= 1;
+          if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+        }
+
+        if (textFilter) {
+          textFilter.addEventListener('input', function () {
+            currentPage = 1;
+            updateUsersTable();
+          });
+        }
+
+        if (profileFilter) {
+          profileFilter.addEventListener('change', function () {
+            currentPage = 1;
+            updateUsersTable();
+          });
+        }
+
+        if (pageSizeSelect) {
+          pageSizeSelect.addEventListener('change', function () {
+            pageSize = Number(pageSizeSelect.value) || 10;
+            currentPage = 1;
+            updateUsersTable();
+          });
+        }
+
+        if (prevBtn) {
+          prevBtn.addEventListener('click', function () {
+            if (currentPage > 1) {
+              currentPage -= 1;
+              updateUsersTable();
+            }
+          });
+        }
+
+        if (nextBtn) {
+          nextBtn.addEventListener('click', function () {
+            currentPage += 1;
+            updateUsersTable();
+          });
+        }
+
+        updateUsersTable();
+      })();
+    </script>
+
+    <% if (toast && toast.text) { %>
+      <script>
+        (function () {
+          const toast = document.getElementById('app-toast');
+          const closeBtn = document.getElementById('toast-close');
+
+          if (!toast) return;
+
+          function closeToast() {
+            toast.classList.add('toast-out');
+            window.setTimeout(() => toast.remove(), 300);
+          }
+
+          if (closeBtn) {
+            closeBtn.addEventListener('click', closeToast);
+          }
+
+          window.setTimeout(closeToast, 4500);
+        })();
+      </script>
+    <% } %>
+  </body>
+</html>

@@ -22,12 +22,25 @@
         <p>Olá, <strong><%= user.fullName || user.username %></strong></p>
       </div>
       <div class="topbar-actions">
+        <a href="/dashboard" class="btn-secondary">Dashboard</a>
+        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
         <a href="/reports/nslookup" class="btn-secondary">Relatórios</a>
         <a href="/dns/integration" class="btn-secondary">Integração DNS</a>
-        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
-        <form method="post" action="/logout">
-          <button type="submit" class="btn-danger">Sair</button>
-        </form>
+        <% if (user.isAdmin) { %>
+          <a href="/users" class="btn-secondary">Usuários</a>
+        <% } %>
+        <details class="user-dropdown">
+          <summary class="user-dropdown-trigger">
+            <span class="user-dropdown-text">@<%= user.username %></span>
+            <span class="user-dropdown-caret" aria-hidden="true">▾</span>
+          </summary>
+          <div class="user-dropdown-menu">
+            <a href="/account/password" class="user-dropdown-link">Trocar minha senha</a>
+            <form method="post" action="/logout" class="user-dropdown-form">
+              <button type="submit" class="user-dropdown-logout">Sair</button>
+            </form>
+          </div>
+        </details>
       </div>
     </header>
 

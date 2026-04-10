@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS users (
   username VARCHAR(80) NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   full_name VARCHAR(150) NOT NULL,
+  must_change_password BOOLEAN NOT NULL DEFAULT false,
+  password_changed_at TIMESTAMPTZ NULL,
+  is_admin BOOLEAN NOT NULL DEFAULT false,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -150,6 +153,6 @@ CREATE TRIGGER trg_domains_updated_at
 BEFORE UPDATE ON domains
 FOR EACH ROW EXECUTE FUNCTION set_updated_at_timestamp();
 
-INSERT INTO users (username, password_hash, full_name)
-VALUES ('admin', crypt('admin123', gen_salt('bf')), 'Administrador DNSBlock')
+INSERT INTO users (username, password_hash, full_name, is_admin, must_change_password, password_changed_at)
+VALUES ('admin', crypt('admin123', gen_salt('bf')), 'Administrador DNSBlock', true, false, now())
 ON CONFLICT (username) DO NOTHING;
