@@ -423,6 +423,48 @@ select:focus {
   margin-bottom: 10px;
 }
 
+.report-notice-table-wrap {
+  margin-bottom: 12px;
+}
+
+.report-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.report-status-queued {
+  background: #e0e7ff;
+  color: #2d3fa6;
+}
+
+.report-status-running {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.report-status-completed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.report-status-failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .is-hidden {
   display: none;
 }

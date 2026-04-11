@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS blocklist_reports (
   id BIGSERIAL PRIMARY KEY,
   job_id UUID NOT NULL UNIQUE,
   blocklist_version VARCHAR(20) NOT NULL,
+  report_scope VARCHAR(20) NOT NULL DEFAULT 'general',
+  notice_id BIGINT REFERENCES notices(id),
   status VARCHAR(20) NOT NULL,
   progress INTEGER NOT NULL DEFAULT 0,
   total INTEGER NOT NULL DEFAULT 0,
@@ -103,7 +105,8 @@ CREATE TABLE IF NOT EXISTS blocklist_reports (
   error TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT blocklist_reports_status_check CHECK (status IN ('queued', 'running', 'completed', 'failed'))
+  CONSTRAINT blocklist_reports_status_check CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+  CONSTRAINT blocklist_reports_scope_check CHECK (report_scope IN ('general', 'notice'))
 );
 
 CREATE TABLE IF NOT EXISTS dns_api_tokens (
@@ -132,6 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_domain_executions_domain_id ON domain_executions(
 CREATE INDEX IF NOT EXISTS idx_domain_import_invalids_created_by ON domain_import_invalids(created_by);
 CREATE INDEX IF NOT EXISTS idx_blocklist_versions_created_at ON blocklist_versions(created_at);
 CREATE INDEX IF NOT EXISTS idx_blocklist_reports_version ON blocklist_reports(blocklist_version);
+CREATE INDEX IF NOT EXISTS idx_blocklist_reports_scope ON blocklist_reports(blocklist_version, report_scope, notice_id);
 CREATE INDEX IF NOT EXISTS idx_dns_api_tokens_active ON dns_api_tokens(revoked_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_expire ON user_sessions(expire);
 

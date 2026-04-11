@@ -56,17 +56,62 @@
         <div class="table-header">
           <h3>Relatório de Verificação (nslookup)</h3>
           <form method="post" action="/reports/nslookup/start">
-            <button type="submit" class="btn-primary">Gerar Relatório em PDF</button>
+            <button type="submit" class="btn-primary">Gerar Relatório Geral</button>
           </form>
         </div>
 
         <p class="helper-text report-version-note">
           Versão atual da blocklist: <strong><%= latestBlocklistVersion || 'sem versão' %></strong>.
           Só é permitido gerar novo relatório quando a versão mudar.
-          <% if (latestReport) { %>
-            Último relatório: versão <strong><%= latestReport.blocklist_version %></strong> com status <strong><%= latestReport.status %></strong>.
+          <% if (latestGeneralReport) { %>
+            Último relatório geral: versão <strong><%= latestGeneralReport.blocklist_version %></strong> com status <strong><%= latestGeneralReport.status %></strong>.
           <% } %>
         </p>
+
+        <div class="table-container report-notice-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ofício</th>
+                <th>Domínios Ativos</th>
+                <th>Último Status</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!noticeReports || noticeReports.length === 0) { %>
+                <tr class="empty-row">
+                  <td colspan="4">Nenhum ofício com domínio ativo disponível para geração de relatório.</td>
+                </tr>
+              <% } %>
+
+              <% (noticeReports || []).forEach(function (noticeItem) { %>
+                <tr>
+                  <td><strong><%= noticeItem.notice_code %></strong></td>
+                  <td><%= noticeItem.active_domains %></td>
+                  <td>
+                    <% if (noticeItem.latest_status) { %>
+                      <span class="report-status-pill report-status-<%= noticeItem.latest_status %>"><%= noticeItem.latest_status %></span>
+                    <% } else { %>
+                      <span class="muted-inline">sem relatório</span>
+                    <% } %>
+                  </td>
+                  <td>
+                    <div class="report-row-actions">
+                      <form method="post" action="/reports/nslookup/start">
+                        <input type="hidden" name="noticeId" value="<%= noticeItem.id %>" />
+                        <button type="submit" class="btn-secondary">Gerar relatório</button>
+                      </form>
+                      <% if (noticeItem.latest_status === 'completed' && noticeItem.latest_job_id) { %>
+                        <a class="btn-secondary" href="/reports/nslookup/download?jobId=<%= encodeURIComponent(noticeItem.latest_job_id) %>">Baixar último</a>
+                      <% } %>
+                    </div>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
 
         <div
           id="report-progress-panel"
@@ -75,7 +120,7 @@
           data-job-status="<%= reportJob ? reportJob.status : 'idle' %>"
         >
           <div class="report-progress-meta">
-            <strong id="report-status-label">Status: <%= reportJob ? reportJob.status : 'idle' %></strong>
+            <strong id="report-status-label">Status: <%= reportJob ? reportJob.status : 'idle' %> <%= reportJob && reportJob.scopeLabel ? `(${reportJob.scopeLabel})` : '' %></strong>
             <span id="report-progress-label"><%= reportJob ? `${reportJob.progress}%` : '0%' %></span>
           </div>
           <div class="report-progress-track">
@@ -83,9 +128,9 @@
           </div>
           <p class="helper-text" id="report-progress-helper">
             <% if (reportJob) { %>
-              Processados: <%= reportJob.processed %> de <%= reportJob.total %>
+              Processados: <%= reportJob.processed %> de <%= reportJob.total %> (<%= reportJob.scopeLabel || 'Geral' %>)
             <% } else { %>
-              Clique em "Gerar Relatório em PDF" para iniciar a verificação de nslookup em background.
+              Clique em "Gerar Relatório Geral" ou use o botão por ofício para iniciar a verificação de nslookup em background.
             <% } %>
           </p>
           <a
@@ -138,10 +183,11 @@
           const progress = Number(data.progress || 0);
           const processed = Number(data.processed || 0);
           const total = Number(data.total || 0);
+          const scopeLabel = data.scopeLabel || 'Geral';
 
           jobStatus = status;
 
-          if (statusLabel) statusLabel.textContent = `Status: ${status}`;
+          if (statusLabel) statusLabel.textContent = `Status: ${status} (${scopeLabel})`;
           if (percentLabel) percentLabel.textContent = `${progress}%`;
           if (fill) fill.style.width = `${progress}%`;
 
@@ -151,7 +197,7 @@
             } else if (status === 'idle') {
               helperLabel.textContent = 'Nenhum relatório em execução.';
             } else {
-              helperLabel.textContent = `Processados: ${processed} de ${total}`;
+              helperLabel.textContent = `Processados: ${processed} de ${total} (${scopeLabel})`;
             }
           }
 

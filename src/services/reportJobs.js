@@ -208,10 +208,15 @@ function createPdfReport(filePath, domainsResults, metadata) {
 
     doc.pipe(stream);
 
-    doc.font('Helvetica-Bold').fontSize(18).text('DNSBlock - Relatorio de Verificacao (nslookup)');
+    const reportTitle = metadata.reportTitle || 'DNSBlock - Relatorio de Verificacao (nslookup)';
+
+    doc.font('Helvetica-Bold').fontSize(18).text(reportTitle);
     doc.moveDown(0.5);
     doc.font('Helvetica').fontSize(10).text(`Gerado em: ${formatDateTime(metadata.generatedAt)}`);
     doc.text(`Usuario: ${metadata.requestedBy || 'desconhecido'}`);
+    if (metadata.scopeLabel) {
+      doc.text(`Escopo: ${metadata.scopeLabel}`);
+    }
     doc.text(`Total de dominios: ${domainsResults.length}`);
     doc.moveDown();
 
@@ -274,6 +279,8 @@ async function runNslookupJob(jobId) {
     await createPdfReport(reportPath, results, {
       generatedAt: new Date(),
       requestedBy: job.requestedBy,
+      reportTitle: `DNSBlock - Relatorio ${job.reportScope === 'notice' ? 'por Oficio' : 'Geral'} (nslookup)`,
+      scopeLabel: job.scopeLabel,
     });
 
     job.reportFileName = reportFileName;
@@ -294,7 +301,19 @@ async function runNslookupJob(jobId) {
   }
 }
 
-function createNslookupJob(domains, requestedBy, hooks = {}) {
+function createNslookupJob(domains, requestedBy, options = {}) {
+  const hooks = {
+    onStart: options.onStart,
+    onProgress: options.onProgress,
+    onComplete: options.onComplete,
+    onError: options.onError,
+  };
+
+  const reportScope = options.reportScope === 'notice' ? 'notice' : 'general';
+  const noticeId = Number.isInteger(options.noticeId) ? options.noticeId : null;
+  const noticeCode = options.noticeCode ? String(options.noticeCode) : null;
+  const scopeLabel = options.scopeLabel || (reportScope === 'notice' ? `Oficio ${noticeCode || ''}`.trim() : 'Geral');
+
   const jobId = crypto.randomUUID();
   const uniqueDomains = [...new Set(domains)];
 
@@ -311,6 +330,10 @@ function createNslookupJob(domains, requestedBy, hooks = {}) {
     reportFileName: null,
     reportPath: null,
     error: null,
+    reportScope,
+    noticeId,
+    noticeCode,
+    scopeLabel,
     domains: uniqueDomains,
     onStart: hooks.onStart,
     onProgress: hooks.onProgress,
@@ -344,6 +367,10 @@ function getPublicJobData(job) {
     progress: job.progress,
     error: job.error,
     reportFileName: job.reportFileName,
+    reportScope: job.reportScope,
+    noticeId: job.noticeId,
+    noticeCode: job.noticeCode,
+    scopeLabel: job.scopeLabel,
     createdAt: job.createdAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,

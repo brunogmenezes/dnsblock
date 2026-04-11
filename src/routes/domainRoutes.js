@@ -422,18 +422,10 @@ router.get('/dns/integration', ensureAuthenticated, async (req, res) => {
 router.get('/reports/nslookup', ensureAuthenticated, async (req, res) => {
   const toast = consumeFlash(req);
   let reportJob = null;
-
-  if (req.session.nslookupReportJobId) {
-    const currentJob = getJob(req.session.nslookupReportJobId);
-    if (currentJob) {
-      reportJob = getPublicJobData(currentJob);
-    } else {
-      delete req.session.nslookupReportJobId;
-    }
-  }
+  const currentSessionJobId = req.session.nslookupReportJobId || null;
 
   try {
-    const [versionResult, reportResult] = await Promise.all([
+    const [versionResult, latestGeneralReportResult] = await Promise.all([
       pool.query(
         `SELECT version
          FROM blocklist_versions
@@ -441,26 +433,104 @@ router.get('/reports/nslookup', ensureAuthenticated, async (req, res) => {
          LIMIT 1`
       ),
       pool.query(
-        `SELECT job_id, blocklist_version, status, progress, total, processed, report_file_name, error, updated_at
+        `SELECT job_id, blocklist_version, status, progress, total, processed, report_file_name, error, updated_at, report_scope, notice_id
          FROM blocklist_reports
+         WHERE report_scope = 'general'
          ORDER BY id DESC
          LIMIT 1`
       ),
     ]);
 
     let latestBlocklistVersion = versionResult.rows.length > 0 ? versionResult.rows[0].version : null;
-    let latestReport = reportResult.rows.length > 0 ? reportResult.rows[0] : null;
+    let latestGeneralReport = latestGeneralReportResult.rows.length > 0 ? latestGeneralReportResult.rows[0] : null;
+
+    if (currentSessionJobId) {
+      const currentJob = getJob(currentSessionJobId);
+      if (currentJob) {
+        reportJob = getPublicJobData(currentJob);
+      } else {
+        const persistedJobResult = await pool.query(
+          `SELECT br.job_id,
+                  br.status,
+                  br.progress,
+                  br.total,
+                  br.processed,
+                  br.error,
+                  br.report_file_name,
+                  br.report_scope,
+                  br.notice_id,
+                  COALESCE(NULLIF(TRIM(n.notice_code), ''), CONCAT('Oficio #', n.id::text)) AS notice_code
+           FROM blocklist_reports br
+           LEFT JOIN notices n ON n.id = br.notice_id
+           WHERE br.job_id = $1
+           LIMIT 1`,
+          [currentSessionJobId]
+        );
+
+        if (persistedJobResult.rows.length > 0) {
+          const row = persistedJobResult.rows[0];
+          reportJob = {
+            id: row.job_id,
+            status: row.status,
+            progress: Number(row.progress || 0),
+            total: Number(row.total || 0),
+            processed: Number(row.processed || 0),
+            error: row.error || null,
+            reportFileName: row.report_file_name || null,
+            reportScope: row.report_scope || 'general',
+            noticeId: row.notice_id || null,
+            noticeCode: row.notice_code || null,
+            scopeLabel: row.report_scope === 'notice'
+              ? `Oficio ${row.notice_code || row.notice_id || ''}`.trim()
+              : 'Geral',
+          };
+        } else {
+          delete req.session.nslookupReportJobId;
+        }
+      }
+    }
+
+    const noticeReportsResult = await pool.query(
+      `SELECT
+          n.id,
+          COALESCE(NULLIF(TRIM(n.notice_code), ''), CONCAT('Oficio #', n.id::text)) AS notice_code,
+          COUNT(d.id)::INTEGER AS active_domains,
+          last_report.job_id AS latest_job_id,
+          last_report.status AS latest_status,
+          last_report.progress AS latest_progress,
+          last_report.report_file_name AS latest_report_file_name
+       FROM notices n
+       JOIN domains d
+         ON d.notice_id = n.id
+        AND d.is_active = true
+       LEFT JOIN LATERAL (
+         SELECT job_id, status, progress, report_file_name
+         FROM blocklist_reports
+         WHERE report_scope = 'notice'
+           AND notice_id = n.id
+           AND ($1::VARCHAR IS NULL OR blocklist_version = $1)
+         ORDER BY id DESC
+         LIMIT 1
+       ) last_report ON true
+       GROUP BY n.id, notice_code, last_report.job_id, last_report.status, last_report.progress, last_report.report_file_name
+       ORDER BY n.id DESC`,
+      [latestBlocklistVersion]
+    );
 
     // If there is no active in-memory job, expose the latest completed report of the current version.
-    if (!reportJob && latestReport && latestBlocklistVersion && latestReport.blocklist_version === latestBlocklistVersion) {
+    if (!reportJob && latestGeneralReport && latestBlocklistVersion && latestGeneralReport.blocklist_version === latestBlocklistVersion) {
       reportJob = {
-        id: latestReport.job_id,
-        status: latestReport.status,
-        progress: Number(latestReport.progress || 0),
-        total: Number(latestReport.total || 0),
-        processed: Number(latestReport.processed || 0),
-        error: latestReport.error || null,
-        reportFileName: latestReport.report_file_name || null,
+        id: latestGeneralReport.job_id,
+        status: latestGeneralReport.status,
+        progress: Number(latestGeneralReport.progress || 0),
+        total: Number(latestGeneralReport.total || 0),
+        processed: Number(latestGeneralReport.processed || 0),
+        error: latestGeneralReport.error || null,
+        reportFileName: latestGeneralReport.report_file_name || null,
+        reportScope: 'general',
+        noticeId: null,
+        noticeCode: null,
+        scopeLabel: 'Geral',
       };
     }
 
@@ -469,7 +539,8 @@ router.get('/reports/nslookup', ensureAuthenticated, async (req, res) => {
       user: req.session.user,
       reportJob,
       latestBlocklistVersion,
-      latestReport,
+      latestGeneralReport,
+      noticeReports: noticeReportsResult.rows,
       message: null,
       error: null,
       toast,
@@ -481,7 +552,8 @@ router.get('/reports/nslookup', ensureAuthenticated, async (req, res) => {
       user: req.session.user,
       reportJob,
       latestBlocklistVersion: null,
-      latestReport: null,
+      latestGeneralReport: null,
+      noticeReports: [],
       message: null,
       error: 'Erro interno ao carregar a página de relatórios.',
       toast,
@@ -989,15 +1061,43 @@ router.post('/dns/tokens/revoke', ensureAuthenticated, async (req, res) => {
 
 router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => {
   try {
+    const rawNoticeId = String(req.body.noticeId || '').trim();
+    const requestedNoticeId = rawNoticeId ? Number(rawNoticeId) : null;
+    const isNoticeReport = Number.isInteger(requestedNoticeId) && requestedNoticeId > 0;
+
     const currentVersion = await getOrCreateCurrentBlocklistVersion();
+
+    let noticeInfo = null;
+    if (isNoticeReport) {
+      const noticeResult = await pool.query(
+        `SELECT id,
+                COALESCE(NULLIF(TRIM(notice_code), ''), CONCAT('Oficio #', id::text)) AS notice_code
+         FROM notices
+         WHERE id = $1
+         LIMIT 1`,
+        [requestedNoticeId]
+      );
+
+      if (noticeResult.rows.length === 0) {
+        return redirectWithFlash(req, res, 'error', 'Oficio informado nao foi encontrado.', '/reports/nslookup');
+      }
+
+      noticeInfo = noticeResult.rows[0];
+    }
+
+    const reportScope = isNoticeReport ? 'notice' : 'general';
+    const scopedNoticeId = isNoticeReport ? requestedNoticeId : null;
+    const scopeLabel = isNoticeReport ? `Oficio ${noticeInfo.notice_code}` : 'Geral';
 
     const reportForCurrentVersion = await pool.query(
       `SELECT id, job_id, status, blocklist_version
        FROM blocklist_reports
        WHERE blocklist_version = $1
+         AND report_scope = $2
+         AND ($3::BIGINT IS NULL AND notice_id IS NULL OR notice_id = $3)
        ORDER BY id DESC
        LIMIT 1`,
-      [currentVersion]
+      [currentVersion, reportScope, scopedNoticeId]
     );
 
     if (reportForCurrentVersion.rows.length > 0) {
@@ -1008,8 +1108,8 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
           req,
           res,
           'info',
-          `Ja existe relatorio concluido para a versao ${currentVersion}. Gere um novo apenas apos mudanca de versao.`,
-          '/dashboard'
+          `Ja existe relatorio concluido (${scopeLabel}) para a versao ${currentVersion}. Gere um novo apenas apos mudanca de versao.`,
+          '/reports/nslookup'
         );
       }
 
@@ -1019,8 +1119,8 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
           req,
           res,
           'info',
-          `Ja existe relatorio em execucao para a versao ${currentVersion}.`,
-          '/dashboard'
+          `Ja existe relatorio em execucao (${scopeLabel}) para a versao ${currentVersion}.`,
+          '/reports/nslookup'
         );
       }
     }
@@ -1029,24 +1129,42 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
     if (existingJobId) {
       const existingJob = getJob(existingJobId);
       if (existingJob && (existingJob.status === 'queued' || existingJob.status === 'running')) {
-        return redirectWithFlash(req, res, 'info', 'Ja existe um relatorio em execucao. Aguarde a conclusao.', '/dashboard');
+        return redirectWithFlash(req, res, 'info', 'Ja existe um relatorio em execucao. Aguarde a conclusao.', '/reports/nslookup');
       }
     }
 
-    const domainsResult = await pool.query(
-      `SELECT domain_name
-       FROM domains
-       WHERE is_active = true
-       ORDER BY domain_name ASC`
-    );
+    let domainsResult;
+
+    if (isNoticeReport) {
+      domainsResult = await pool.query(
+        `SELECT domain_name
+         FROM domains
+         WHERE is_active = true
+           AND notice_id = $1
+         ORDER BY domain_name ASC`,
+        [scopedNoticeId]
+      );
+    } else {
+      domainsResult = await pool.query(
+        `SELECT domain_name
+         FROM domains
+         WHERE is_active = true
+         ORDER BY domain_name ASC`
+      );
+    }
 
     const domains = domainsResult.rows.map((row) => row.domain_name);
 
     if (domains.length === 0) {
-      return redirectWithFlash(req, res, 'info', 'Nao ha dominios ativos para gerar o relatorio.', '/dashboard');
+      const emptyScopeLabel = isNoticeReport ? `do ${scopeLabel}` : 'ativos';
+      return redirectWithFlash(req, res, 'info', `Nao ha dominios ${emptyScopeLabel} para gerar o relatorio.`, '/reports/nslookup');
     }
 
     const job = createNslookupJob(domains, req.session.user.username, {
+      reportScope,
+      noticeId: scopedNoticeId,
+      noticeCode: noticeInfo ? noticeInfo.notice_code : null,
+      scopeLabel,
       onStart: (jobState) => {
         pool
           .query(
@@ -1107,14 +1225,16 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
       `INSERT INTO blocklist_reports (
           job_id,
           blocklist_version,
+          report_scope,
+          notice_id,
           status,
           progress,
           total,
           processed,
           requested_by
         )
-       VALUES ($1, $2, 'queued', 0, $3, 0, $4)`,
-      [job.id, currentVersion, job.total, req.session.user.id]
+       VALUES ($1, $2, $3, $4, 'queued', 0, $5, 0, $6)`,
+      [job.id, currentVersion, reportScope, scopedNoticeId, job.total, req.session.user.id]
     );
 
     req.session.nslookupReportJobId = job.id;
@@ -1123,12 +1243,12 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
       req,
       res,
       'success',
-      'Relatorio iniciado em background. Acompanhe o progresso no dashboard.',
-      '/dashboard'
+      `Relatorio ${scopeLabel.toLowerCase()} iniciado em background. Acompanhe o progresso abaixo.`,
+      '/reports/nslookup'
     );
   } catch (error) {
     console.error('Erro ao iniciar relatorio nslookup:', error);
-    return redirectWithFlash(req, res, 'error', 'Erro ao iniciar relatorio de verificacao.', '/dashboard');
+    return redirectWithFlash(req, res, 'error', 'Erro ao iniciar relatorio de verificacao.', '/reports/nslookup');
   }
 });
 
@@ -1143,8 +1263,18 @@ router.get('/reports/nslookup/status', ensureAuthenticated, (req, res) => {
   if (!job) {
     pool
       .query(
-        `SELECT job_id, status, progress, total, processed, error, report_file_name
-         FROM blocklist_reports
+        `SELECT br.job_id,
+                br.status,
+                br.progress,
+                br.total,
+                br.processed,
+                br.error,
+                br.report_file_name,
+                br.report_scope,
+                br.notice_id,
+                COALESCE(NULLIF(TRIM(n.notice_code), ''), CONCAT('Oficio #', n.id::text)) AS notice_code
+         FROM blocklist_reports br
+         LEFT JOIN notices n ON n.id = br.notice_id
          WHERE job_id = $1
          LIMIT 1`,
         [jobId]
@@ -1163,6 +1293,12 @@ router.get('/reports/nslookup/status', ensureAuthenticated, (req, res) => {
           processed: row.processed,
           error: row.error,
           reportFileName: row.report_file_name,
+          reportScope: row.report_scope || 'general',
+          noticeId: row.notice_id,
+          noticeCode: row.notice_code,
+          scopeLabel: row.report_scope === 'notice'
+            ? `Oficio ${row.notice_code || row.notice_id || ''}`.trim()
+            : 'Geral',
         });
       })
       .catch((error) => {
