@@ -134,6 +134,7 @@ select:focus {
 .btn-danger {
   border: none;
   padding: 10px 15px;
+  line-height: 1;
   border-radius: var(--radius-sm);
   font-weight: 700;
   font-size: 0.9rem;
@@ -189,6 +190,11 @@ select:focus {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.topbar-actions .btn-secondary {
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .user-dropdown {
