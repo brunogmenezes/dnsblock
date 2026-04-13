@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const pool = require('../config/db');
 const { ensureAdmin, ensureAuthenticated, redirectIfAuthenticated } = require('../middlewares/auth');
+const { logAudit } = require('../services/auditLogger');
 
 const router = express.Router();
 
@@ -28,6 +29,24 @@ function redirectWithFlash(req, res, type, text, targetPath) {
   req.session.save(() => {
     res.redirect(targetPath);
   });
+}
+
+function sanitizePageSize(rawValue) {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 20;
+  }
+
+  return Math.min(parsed, 100);
+}
+
+function sanitizePage(rawValue) {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 1;
+  }
+
+  return parsed;
 }
 
 async function getUsersPageData() {
@@ -83,6 +102,14 @@ router.post('/login', redirectIfAuthenticated, async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
+    await logAudit(pool, {
+      req,
+      action: 'auth.login_failed',
+      details: {
+        username: username || null,
+        reason: 'missing_credentials',
+      },
+    });
     return renderLogin(res.status(400), 'Informe usuário e senha.');
   }
 
@@ -93,6 +120,14 @@ router.post('/login', redirectIfAuthenticated, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      await logAudit(pool, {
+        req,
+        action: 'auth.login_failed',
+        details: {
+          username,
+          reason: 'user_not_found_or_inactive',
+        },
+      });
       return renderLogin(res.status(401), 'Usuário ou senha inválidos.');
     }
 
@@ -100,6 +135,16 @@ router.post('/login', redirectIfAuthenticated, async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
+      await logAudit(pool, {
+        req,
+        action: 'auth.login_failed',
+        userId: user.id,
+        usernameSnapshot: user.username,
+        details: {
+          username,
+          reason: 'invalid_password',
+        },
+      });
       return renderLogin(res.status(401), 'Usuário ou senha inválidos.');
     }
 
@@ -110,6 +155,17 @@ router.post('/login', redirectIfAuthenticated, async (req, res) => {
       mustChangePassword: Boolean(user.must_change_password),
       isAdmin: Boolean(user.is_admin),
     };
+
+    await logAudit(pool, {
+      req,
+      action: 'auth.login_success',
+      userId: user.id,
+      usernameSnapshot: user.username,
+      details: {
+        mustChangePassword: Boolean(user.must_change_password),
+        isAdmin: Boolean(user.is_admin),
+      },
+    });
 
     return res.redirect(user.must_change_password ? '/account/password' : '/dashboard');
   } catch (error) {
@@ -194,6 +250,17 @@ router.post('/users', ensureAdmin, async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [username, passwordHash, fullName, mustChangePassword, mustChangePassword ? null : new Date(), isAdmin]
     );
+
+    await logAudit(pool, {
+      req,
+      action: 'users.create',
+      details: {
+        createdUsername: username,
+        createdFullName: fullName,
+        isAdmin,
+        mustChangePassword,
+      },
+    });
 
     return redirectWithFlash(req, res, 'success', 'Usuário criado com sucesso.', '/users');
   } catch (error) {
@@ -335,6 +402,20 @@ router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
       [fullName, username, isAdmin, isActive, mustChangePassword, passwordHash, userId]
     );
 
+    await logAudit(pool, {
+      req,
+      action: 'users.update',
+      details: {
+        targetUserId: userId,
+        username,
+        fullName,
+        isAdmin,
+        isActive,
+        mustChangePassword,
+        passwordChanged: Boolean(newPassword),
+      },
+    });
+
     if (req.session.user.id === userId) {
       req.session.user.username = username;
       req.session.user.fullName = fullName;
@@ -393,6 +474,15 @@ router.post('/users/:id/delete', ensureAdmin, async (req, res) => {
        WHERE id = $1`,
       [userId]
     );
+
+    await logAudit(pool, {
+      req,
+      action: 'users.deactivate',
+      details: {
+        targetUserId: userId,
+        targetUsername: targetUser.username,
+      },
+    });
 
     return redirectWithFlash(req, res, 'success', 'Usuário excluído com sucesso.', '/users');
   } catch (error) {
@@ -488,6 +578,14 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
       [newPasswordHash, req.session.user.id]
     );
 
+    await logAudit(pool, {
+      req,
+      action: 'users.change_password',
+      details: {
+        forceChange,
+      },
+    });
+
     req.session.user.mustChangePassword = false;
 
     return redirectWithFlash(
@@ -509,7 +607,98 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.post('/logout', (req, res) => {
+router.get('/audit', ensureAdmin, async (req, res) => {
+  const toast = consumeFlash(req);
+  const query = String(req.query.q || '').trim();
+  const pageSize = sanitizePageSize(req.query.limit);
+  const requestedPage = sanitizePage(req.query.page);
+
+  const filters = [];
+  const params = [];
+
+  if (query) {
+    params.push(`%${query}%`);
+    filters.push(`(
+      COALESCE(u.username, '') ILIKE $${params.length}
+      OR COALESCE(u.full_name, '') ILIKE $${params.length}
+      OR COALESCE(al.username_snapshot, '') ILIKE $${params.length}
+      OR COALESCE(al.ip_address, '') ILIKE $${params.length}
+      OR al.action ILIKE $${params.length}
+      OR COALESCE(al.details::text, '') ILIKE $${params.length}
+    )`);
+  }
+
+  const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+  try {
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::INT AS total
+       FROM audit_logs al
+       LEFT JOIN users u ON u.id = al.user_id
+       ${whereClause}`,
+      params
+    );
+
+    const total = Number(countResult.rows[0].total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const currentPage = Math.min(requestedPage, totalPages);
+    const safeOffset = (currentPage - 1) * pageSize;
+
+    const rowsResult = await pool.query(
+      `SELECT
+          al.id,
+          al.action,
+          al.ip_address,
+          al.created_at,
+          al.details,
+          al.username_snapshot,
+          u.id AS actor_user_id,
+          u.username AS actor_username,
+          u.full_name AS actor_full_name
+       FROM audit_logs al
+       LEFT JOIN users u ON u.id = al.user_id
+       ${whereClause}
+       ORDER BY al.created_at DESC
+       LIMIT $${params.length + 1}
+       OFFSET $${params.length + 2}`,
+      [...params, pageSize, safeOffset]
+    );
+
+    return res.render('audit', {
+      title: 'Auditoria - DNSBlock',
+      user: req.session.user,
+      toast,
+      logs: rowsResult.rows,
+      query,
+      pageSize,
+      currentPage,
+      totalPages,
+      total,
+      error: null,
+    });
+  } catch (error) {
+    console.error('Erro ao carregar auditoria:', error);
+    return res.status(500).render('audit', {
+      title: 'Auditoria - DNSBlock',
+      user: req.session.user,
+      toast,
+      logs: [],
+      query,
+      pageSize,
+      currentPage: 1,
+      totalPages: 1,
+      total: 0,
+      error: 'Erro interno ao carregar auditoria.',
+    });
+  }
+});
+
+router.post('/logout', async (req, res) => {
+  await logAudit(pool, {
+    req,
+    action: 'auth.logout',
+  });
+
   req.session.destroy(() => {
     res.clearCookie('dnsblock.sid');
     return res.redirect('/login');

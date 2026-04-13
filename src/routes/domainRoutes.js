@@ -7,6 +7,7 @@ const { ensureAuthenticated } = require('../middlewares/auth');
 const pool = require('../config/db');
 const { isValidDomain, normalizeDomain } = require('../services/domainValidator');
 const { createNslookupJob, getJob, getPublicJobData } = require('../services/reportJobs');
+const { logAudit } = require('../services/auditLogger');
 
 const router = express.Router();
 const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -885,6 +886,22 @@ router.post(
 
       await client.query('COMMIT');
 
+      await logAudit(pool, {
+        req,
+        action: 'domains.import',
+        details: {
+          noticeCode: noticeCode || null,
+          noticeCreated: Boolean(noticeId),
+          uploadedFilesCount: uploadedFiles.length,
+          insertedDomains: newDomains.length,
+          reactivatedDomains: reactivatedDomains.length,
+          invalidDomains: invalidItems.length,
+          ignoredDomains: ignoredTotal,
+          blockStartDate: blockStartDate || null,
+          blockEndDate: blockEndDate || null,
+        },
+      });
+
       if (uploadedFiles.length > 0 && hasNoticeInfo && newDomains.length + reactivatedDomains.length === 0) {
         removeUploadedFiles(uploadedFiles);
       }
@@ -1030,6 +1047,13 @@ router.post('/dns/tokens/generate', ensureAuthenticated, async (req, res) => {
     }
 
     req.session.generatedDnsApiToken = plainToken;
+    await logAudit(pool, {
+      req,
+      action: 'dns.token_generate',
+      details: {
+        tokenPrefix,
+      },
+    });
     return redirectWithFlash(req, res, 'success', 'Novo token DNS gerado. Copie e atualize o servidor BIND agora.', '/dns/integration');
   } catch (error) {
     console.error('Erro ao gerar token DNS:', error);
@@ -1052,6 +1076,13 @@ router.post('/dns/tokens/revoke', ensureAuthenticated, async (req, res) => {
     }
 
     delete req.session.generatedDnsApiToken;
+    await logAudit(pool, {
+      req,
+      action: 'dns.token_revoke',
+      details: {
+        revokedCount: result.rowCount,
+      },
+    });
     return redirectWithFlash(req, res, 'success', 'Token DNS revogado com sucesso.', '/dns/integration');
   } catch (error) {
     console.error('Erro ao revogar token DNS:', error);
@@ -1239,6 +1270,19 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
 
     req.session.nslookupReportJobId = job.id;
 
+    await logAudit(pool, {
+      req,
+      action: 'reports.nslookup_start',
+      details: {
+        jobId: job.id,
+        reportScope,
+        noticeId: scopedNoticeId,
+        noticeCode: noticeInfo ? noticeInfo.notice_code : null,
+        currentVersion,
+        totalDomains: domains.length,
+      },
+    });
+
     return redirectWithFlash(
       req,
       res,
@@ -1405,6 +1449,15 @@ router.post('/domains/delete/by-domain', ensureAuthenticated, async (req, res) =
       return res.redirect('/dashboard');
     }
 
+    await logAudit(pool, {
+      req,
+      action: 'domains.delete_by_domain',
+      details: {
+        domainName: normalizedDomain,
+        affectedRows: result.rowCount,
+      },
+    });
+
     setFlash(req, 'success', `Domínio ${normalizedDomain} excluído com sucesso.`);
     return res.redirect('/dashboard');
   } catch (error) {
@@ -1458,6 +1511,15 @@ router.post('/domains/delete/by-notice', ensureAuthenticated, async (req, res) =
       return res.redirect('/dashboard');
     }
 
+    await logAudit(pool, {
+      req,
+      action: 'domains.delete_by_notice',
+      details: {
+        noticeCode,
+        affectedRows: result.rowCount,
+      },
+    });
+
     setFlash(req, 'success', `Exclusão concluída. ${result.rowCount} domínio(s) removido(s) do ofício ${noticeCode}.`);
     return res.redirect('/dashboard');
   } catch (error) {
@@ -1499,6 +1561,14 @@ router.post('/domains/delete/all', ensureAuthenticated, async (req, res) => {
       setFlash(req, 'info', 'Nenhum domínio ativo para excluir.');
       return res.redirect('/dashboard');
     }
+
+    await logAudit(pool, {
+      req,
+      action: 'domains.delete_all',
+      details: {
+        affectedRows: result.rowCount,
+      },
+    });
 
     setFlash(req, 'success', `Exclusão concluída. ${result.rowCount} domínio(s) removido(s) da blocklist.`);
     return res.redirect('/dashboard');

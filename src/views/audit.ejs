@@ -7,9 +7,9 @@
     <link rel="stylesheet" href="/public/css/styles.css" />
   </head>
   <body class="bg-grid">
-    <% if (typeof toast !== 'undefined' && toast && toast.text) { %>
+    <% if (toast && toast.text) { %>
       <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
-        <div class="toast-title"><%= toast.type === 'error' ? 'Falha no cadastro' : 'Notificação' %></div>
+        <div class="toast-title"><%= toast.type === 'error' ? 'Falha na execução' : 'Notificação' %></div>
         <div class="toast-text"><%= toast.text %></div>
         <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
         <div class="toast-bar"></div>
@@ -18,8 +18,8 @@
 
     <header class="topbar">
       <div>
-        <h1>Cadastrar Domínios</h1>
-        <p>Insira um domínio por linha, no formato exemplo: bet.jogo.com</p>
+        <h1>Auditoria do Sistema</h1>
+        <p>Rastreio de login, IP e ações executadas pelos usuários.</p>
       </div>
       <div class="topbar-actions">
         <a href="/dashboard" class="btn-secondary">Dashboard</a>
@@ -46,79 +46,79 @@
     </header>
 
     <main class="content-wrap">
-      <% if (message) { %>
-        <div class="alert alert-success"><%= message %></div>
-      <% } %>
       <% if (error) { %>
         <div class="alert alert-error"><%= error %></div>
       <% } %>
 
-      <section class="form-panel">
-        <form method="post" action="/domains" class="form-stack" enctype="multipart/form-data">
-          <label for="domains">Lista de Domínios</label>
-          <textarea id="domains" name="domains" rows="10" placeholder="bet.jogo.com&#10;site-aposta.net"><%= inputDomains %></textarea>
-          <p class="helper-text">O sistema remove espaços, vírgulas, acentos e caracteres especiais automaticamente e salva em minúsculo.</p>
-
-          <div class="date-grid">
-            <div>
-              <label for="blockStartDate">Data Inicial de Bloqueio (opcional)</label>
-              <input id="blockStartDate" name="blockStartDate" type="date" value="<%= inputBlockStartDate || '' %>" />
-            </div>
-            <div>
-              <label for="blockEndDate">Data Final de Bloqueio (opcional)</label>
-              <input id="blockEndDate" name="blockEndDate" type="date" value="<%= inputBlockEndDate || '' %>" />
-            </div>
-          </div>
-
-          <label for="noticeCode">Identificação do Ofício (opcional)</label>
-          <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" value="<%= inputNoticeCode || '' %>" />
-
-          <label for="officialFiles">Anexos do Ofício (opcional)</label>
-          <input id="officialFiles" name="officialFiles" type="file" multiple />
-          <p class="helper-text">Você pode anexar vários arquivos (PDF, PNG, CSV ou outro formato).</p>
-
-          <button type="submit" class="btn-primary">Salvar Domínios</button>
-        </form>
-      </section>
-
       <section class="table-section">
         <div class="table-header">
-          <h3>Domínios inválidos para revisão</h3>
+          <h3>Eventos de auditoria</h3>
+          <span class="helper-text"><strong><%= total %></strong> registros encontrados</span>
         </div>
+
+        <form method="get" action="/audit" class="table-controls">
+          <input
+            id="audit-query"
+            name="q"
+            type="text"
+            placeholder="Buscar por usuário, ação, IP ou detalhe"
+            value="<%= query || '' %>"
+          />
+          <select name="limit" aria-label="Registros por página">
+            <option value="10" <%= pageSize === 10 ? 'selected' : '' %>>10</option>
+            <option value="20" <%= pageSize === 20 ? 'selected' : '' %>>20</option>
+            <option value="50" <%= pageSize === 50 ? 'selected' : '' %>>50</option>
+            <option value="100" <%= pageSize === 100 ? 'selected' : '' %>>100</option>
+          </select>
+          <button type="submit" class="btn-primary">Buscar</button>
+        </form>
 
         <div class="table-container">
           <table>
             <thead>
               <tr>
-                <th>Valor enviado</th>
-                <th>Valor normalizado</th>
-                <th>Motivo</th>
-                <th>Data</th>
+                <th>Data/Hora</th>
+                <th>Usuário</th>
+                <th>Ação</th>
+                <th>IP</th>
+                <th>Detalhes</th>
               </tr>
             </thead>
             <tbody>
-              <% if (!invalidDomainsReview || invalidDomainsReview.length === 0) { %>
+              <% if (!logs || logs.length === 0) { %>
                 <tr>
-                  <td colspan="4">Nenhum domínio inválido registrado para revisão.</td>
+                  <td colspan="5">Nenhum registro de auditoria encontrado para os filtros aplicados.</td>
                 </tr>
               <% } %>
-              <% if (invalidDomainsReview && invalidDomainsReview.length > 0) { %>
-                <% invalidDomainsReview.forEach(function (row) { %>
+
+              <% if (logs && logs.length > 0) { %>
+                <% logs.forEach(function (row) { %>
+                  <% const displayUser = row.actor_full_name || row.actor_username || row.username_snapshot || 'Sistema'; %>
                   <tr>
-                    <td><%= row.original_value %></td>
-                    <td><%= row.normalized_value || '-' %></td>
-                    <td><%= row.reason %></td>
                     <td><%= new Date(row.created_at).toLocaleString('pt-BR') %></td>
+                    <td><%= displayUser %></td>
+                    <td><%= row.action %></td>
+                    <td><%= row.ip_address || '-' %></td>
+                    <td class="cell-wrap"><%= row.details ? JSON.stringify(row.details) : '-' %></td>
                   </tr>
                 <% }) %>
               <% } %>
             </tbody>
           </table>
         </div>
+
+        <% const previousPage = currentPage > 1 ? currentPage - 1 : 1; %>
+        <% const nextPage = currentPage < totalPages ? currentPage + 1 : totalPages; %>
+
+        <div class="table-pagination">
+          <a href="/audit?page=<%= previousPage %>&limit=<%= pageSize %>&q=<%= encodeURIComponent(query || '') %>" class="btn-secondary <%= currentPage <= 1 ? 'is-disabled-link' : '' %>">Anterior</a>
+          <span>Página <%= currentPage %> de <%= totalPages %></span>
+          <a href="/audit?page=<%= nextPage %>&limit=<%= pageSize %>&q=<%= encodeURIComponent(query || '') %>" class="btn-secondary <%= currentPage >= totalPages ? 'is-disabled-link' : '' %>">Próxima</a>
+        </div>
       </section>
     </main>
 
-    <% if (typeof toast !== 'undefined' && toast && toast.text) { %>
+    <% if (toast && toast.text) { %>
       <script>
         (function () {
           const toast = document.getElementById('app-toast');

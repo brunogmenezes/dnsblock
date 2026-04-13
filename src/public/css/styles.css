@@ -391,6 +391,12 @@ select:focus {
   background: var(--surface-2);
 }
 
+.cell-wrap {
+  white-space: normal;
+  word-break: break-word;
+  max-width: 460px;
+}
+
 .report-progress-panel {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -544,6 +550,12 @@ tbody tr:hover:not(.group-row) {
 .table-pagination .btn-secondary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
+}
+
+.is-disabled-link {
+  pointer-events: none;
+  opacity: 0.45;
   transform: none;
 }
 
