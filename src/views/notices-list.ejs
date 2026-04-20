@@ -32,7 +32,9 @@
               <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f59e0b;"></span> Bloqueado</div>
               <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span> Respondido</div>
             </div>
-            <button id="btn-add-notice" class="btn-primary">Cadastrar novo ofício</button>
+            <% if (hasPermission('notices.create')) { %>
+              <button id="btn-add-notice" class="btn-primary">Cadastrar novo ofício</button>
+            <% } %>
           </div>
         </div>
 
@@ -139,15 +141,23 @@
                     <td style="text-align:center;">
                       <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;align-items:center;">
                         <% if (notice.status !== 'informed') { %>
-                          <div style="display:flex;gap:6px;">
-                            <button class="btn-primary btn-add-domains" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;">Adicionar Domínios</button>
-                            <button class="btn-secondary btn-add-files" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;">Anexar Arquivos</button>
+                          <div style="display:flex;gap:6px;flex-direction:column;width:100%;">
+                            <div style="display:flex;gap:6px;">
+                              <% if (hasPermission('notices.add_domains')) { %>
+                                <button class="btn-primary btn-add-domains" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;flex:1;">Domínios</button>
+                              <% } %>
+                              <% if (hasPermission('notices.add_files')) { %>
+                                <button class="btn-secondary btn-add-files" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;flex:1;">Anexar</button>
+                              <% } %>
+                            </div>
+                            <% if (hasPermission('notices.inform')) { %>
+                              <% if (notice.total_domains > 0) { %>
+                                <button class="btn-info btn-inform-notice" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;background:var(--info);color:#fff;border-color:var(--info);width:100%;">Marcar Respondido</button>
+                              <% } else { %>
+                                <span style="color: var(--muted); font-size: 0.8rem; font-style: italic;">Adicione domínios para responder</span>
+                              <% } %>
+                            <% } %>
                           </div>
-                          <% if (notice.total_domains > 0) { %>
-                            <button class="btn-info btn-inform-notice" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;background:var(--info);color:#fff;border-color:var(--info);width:100%;">Marcar Respondido</button>
-                          <% } else { %>
-                            <span style="color: var(--muted); font-size: 0.8rem; font-style: italic;">Adicione domínios para responder</span>
-                          <% } %>
                         <% } else { %>
                            <span style="color: var(--success); font-size: 0.9rem; font-weight: 700;">Ofício finalizado</span>
                            <div style="font-size: 0.75rem; color: var(--muted); line-height: 1.2;">

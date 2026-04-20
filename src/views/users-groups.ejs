@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grupos de Usuários - DNSBlock</title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+  </head>
+  <body class="app-layout">
+    <%- include('partials/sidebar', { activePage: 'groups' }) %>
+    <div class="main-content">
+      <%- include('partials/topbar', { pageTitle: 'Grupos de Usuários', pageSubtitle: 'Gerencie perfis de acesso e permissões granulares.' }) %>
+
+      <main class="content-wrap">
+        <div class="users-layout">
+          <section class="form-panel user-create-panel">
+            <div class="table-header">
+              <h3>Novo Grupo</h3>
+            </div>
+            <p class="helper-text user-form-lead">Defina o nome e a descrição do grupo para começar.</p>
+
+            <form method="post" action="/users/groups" class="form-stack">
+              <label for="group-name">Nome do Grupo</label>
+              <input id="group-name" name="name" type="text" placeholder="Ex: Operadores, Auditores..." required />
+
+              <label for="group-description">Descrição</label>
+              <textarea id="group-description" name="description" rows="3" placeholder="O que este grupo pode fazer?"></textarea>
+
+              <button type="submit" class="btn-primary">Criar Grupo</button>
+            </form>
+          </section>
+
+          <section class="table-panel user-list-panel">
+            <div class="table-header">
+              <h3>Grupos Cadastrados</h3>
+            </div>
+
+            <div class="table-container">
+              <table id="groups-table">
+                <thead>
+                  <tr>
+                    <th>Nome do Grupo</th>
+                    <th>Descrição</th>
+                    <th>Membros</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% if (!groups || groups.length === 0) { %>
+                    <tr>
+                      <td colspan="4">Nenhum grupo cadastrado.</td>
+                    </tr>
+                  <% } else { %>
+                    <% groups.forEach(function (group) { %>
+                      <tr class="data-row">
+                        <td style="font-weight: 600; color: var(--primary);"><%= group.name %></td>
+                        <td style="color: var(--muted); font-size: 0.9rem;"><%= group.description || '-' %></td>
+                        <td style="text-align: center;"><%= group.user_count || 0 %></td>
+                        <td>
+                          <div class="user-actions-cell">
+                            <a href="/users/groups/<%= group.id %>/edit" class="btn-secondary user-action-btn">Editar Permissões</a>
+                            <% if (group.name !== 'Administrador') { %>
+                              <button type="button" class="btn-danger user-action-btn btn-trigger-delete-group" data-id="<%= group.id %>" data-name="<%= group.name %>">Excluir</button>
+                            <% } %>
+                          </div>
+                        </td>
+                      </tr>
+                    <% }) %>
+                  <% } %>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- Modal Confirmar Exclusão de Grupo -->
+    <div id="modal-confirm-delete-group" class="modal" style="display:none;position:fixed;z-index:4000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:32px 24px;border-radius:12px;width:90%;max-width:400px;box-shadow:var(--shadow-lg);position:relative;animation:modalIn 0.3s ease;text-align:center;">
+        <div style="color:var(--danger);margin-bottom:20px;display:flex;justify-content:center;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        </div>
+        <h2 style="margin-top:0;margin-bottom:12px;font-size:1.3rem;font-weight:700;">Confirmar Exclusão</h2>
+        <p style="color:var(--muted);margin-bottom:24px;line-height:1.5;">Deseja realmente excluir o grupo <strong id="delete-group-name"></strong>? Usuários vinculados a este grupo ficarão sem perfil definido.</p>
+        
+        <div style="display:flex;gap:12px;justify-content:center;border-top:1px solid var(--line);padding-top:20px;">
+          <button type="button" id="cancel-delete-group" class="btn-secondary" style="padding:10px 24px;cursor:pointer;">Cancelar</button>
+          <form id="form-confirm-delete-group" method="post" action="">
+            <button type="submit" class="btn-danger" style="padding:10px 24px;cursor:pointer;">Confirmar Exclusão</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        const modalDelete = document.getElementById('modal-confirm-delete-group');
+        const deleteGroupNameSpan = document.getElementById('delete-group-name');
+        const formConfirmDelete = document.getElementById('form-confirm-delete-group');
+        const cancelDeleteBtn = document.getElementById('cancel-delete-group');
+
+        document.querySelectorAll('.btn-trigger-delete-group').forEach(btn => {
+          btn.onclick = function() {
+            const id = this.getAttribute('data-id');
+            const name = this.getAttribute('data-name');
+            deleteGroupNameSpan.textContent = name;
+            formConfirmDelete.action = `/users/groups/${id}/delete`;
+            modalDelete.style.display = 'flex';
+          };
+        });
+
+        const hideDeleteModal = () => { modalDelete.style.display = 'none'; };
+        if (cancelDeleteBtn) cancelDeleteBtn.onclick = hideDeleteModal;
+        window.addEventListener('click', (e) => { if (e.target === modalDelete) hideDeleteModal(); });
+      })();
+    </script>
+    <%- include('partials/toast') %>
+  </body>
+</html>

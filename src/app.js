@@ -35,6 +35,12 @@ app.use(
     },
   })
 );
+const { hasPermission } = require('./middlewares/auth');
+
+app.use((req, res, next) => {
+  res.locals.hasPermission = (permission) => hasPermission(req.session.user, permission);
+  next();
+});
 
 app.use(authRoutes);
 app.use(domainRoutes);

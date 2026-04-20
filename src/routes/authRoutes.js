@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const pool = require('../config/db');
-const { ensureAdmin, ensureAuthenticated, redirectIfAuthenticated } = require('../middlewares/auth');
+const { ensureAdmin, ensureAuthenticated, ensurePermission, redirectIfAuthenticated } = require('../middlewares/auth');
 const { logAudit } = require('../services/auditLogger');
 
 const router = express.Router();
@@ -51,19 +51,36 @@ function sanitizePage(rawValue) {
 
 async function getUsersPageData() {
   const result = await pool.query(
-    `SELECT id, username, full_name, is_active, is_admin, must_change_password, created_at, password_changed_at
-     FROM users
-     ORDER BY is_admin DESC, username ASC`
+    `SELECT u.id, u.username, u.full_name, u.is_active, u.is_admin, u.must_change_password, u.created_at, u.password_changed_at, u.group_id, g.name as group_name
+     FROM users u
+     LEFT JOIN user_groups g ON u.group_id = g.id
+     ORDER BY u.is_admin DESC, u.username ASC`
   );
 
   return result.rows;
 }
 
+async function getUserGroups() {
+  const result = await pool.query(
+    `SELECT g.id, g.name, g.description, g.permissions, 
+     (SELECT COUNT(*)::int FROM users u WHERE u.group_id = g.id) as user_count
+     FROM user_groups g
+     ORDER BY g.name ASC`
+  );
+  return result.rows;
+}
+
+async function getGroupById(id) {
+  const result = await pool.query('SELECT * FROM user_groups WHERE id = $1', [id]);
+  return result.rows.length > 0 ? result.rows[0] : null;
+}
+
 async function getUserById(userId) {
   const result = await pool.query(
-    `SELECT id, username, full_name, is_active, is_admin, must_change_password, created_at, password_changed_at
-     FROM users
-     WHERE id = $1`,
+    `SELECT u.id, u.username, u.full_name, u.is_active, u.is_admin, u.must_change_password, u.created_at, u.password_changed_at, u.group_id, g.name as group_name
+     FROM users u
+     LEFT JOIN user_groups g ON u.group_id = g.id
+     WHERE u.id = $1`,
     [userId]
   );
 
@@ -115,7 +132,10 @@ router.post('/login', redirectIfAuthenticated, async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT id, username, password_hash, full_name, must_change_password, is_admin FROM users WHERE username = $1 AND is_active = true',
+      `SELECT u.id, u.username, u.password_hash, u.full_name, u.must_change_password, u.is_admin, g.permissions
+       FROM users u
+       LEFT JOIN user_groups g ON u.group_id = g.id
+       WHERE u.username = $1 AND u.is_active = true`,
       [username]
     );
 
@@ -154,6 +174,7 @@ router.post('/login', redirectIfAuthenticated, async (req, res) => {
       fullName: user.full_name,
       mustChangePassword: Boolean(user.must_change_password),
       isAdmin: Boolean(user.is_admin),
+      permissions: user.permissions || {},
     };
 
     await logAudit(pool, {
@@ -174,16 +195,132 @@ router.post('/login', redirectIfAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/users', ensureAdmin, async (req, res) => {
+
+// --- GRUPOS DE USUÁRIOS ---
+
+router.get('/users/groups', ensurePermission('groups.manage'), async (req, res) => {
+  const toast = consumeFlash(req);
+  try {
+    const groups = await getUserGroups();
+    return res.render('users-groups', {
+      title: 'Grupos de Usuários - DNSBlock',
+      user: req.session.user,
+      groups,
+      toast,
+      activePage: 'groups'
+    });
+  } catch (error) {
+    console.error('Erro ao listar grupos:', error);
+    return res.status(500).send('Erro ao carregar grupos.');
+  }
+});
+
+router.post('/users/groups', ensurePermission('groups.manage'), async (req, res) => {
+  const { name, description } = req.body;
+  if (!name) return redirectWithFlash(req, res, 'error', 'Nome do grupo é obrigatório.', '/users/groups');
+
+  try {
+    await pool.query(
+      'INSERT INTO user_groups (name, description) VALUES ($1, $2)',
+      [name, description]
+    );
+    await logAudit(pool, {
+      req,
+      action: 'groups.create',
+      details: { name, description }
+    });
+    return redirectWithFlash(req, res, 'success', 'Grupo criado com sucesso.', '/users/groups');
+  } catch (error) {
+    console.error('Erro ao criar grupo:', error);
+    return redirectWithFlash(req, res, 'error', 'Erro ao criar grupo (talvez já exista).', '/users/groups');
+  }
+});
+
+router.get('/users/groups/:id/edit', ensurePermission('groups.manage'), async (req, res) => {
+  const id = Number(req.params.id);
+  const toast = consumeFlash(req);
+  try {
+    const group = await getGroupById(id);
+    if (!group) return res.status(404).send('Grupo não encontrado.');
+
+    return res.render('users-groups-edit', {
+      title: 'Editar Permissões - DNSBlock',
+      user: req.session.user,
+      group,
+      toast,
+      activePage: 'groups'
+    });
+  } catch (error) {
+    console.error('Erro ao carregar edição de grupo:', error);
+    return res.status(500).send('Erro interno.');
+  }
+});
+
+router.post('/users/groups/:id/edit', ensurePermission('groups.manage'), async (req, res) => {
+  const id = Number(req.params.id);
+  const permissions = req.body.permissions || {};
+
+  try {
+    const group = await getGroupById(id);
+    if (!group) return res.status(404).send('Grupo não encontrado.');
+    if (group.name === 'Administrador') {
+      return redirectWithFlash(req, res, 'error', 'O grupo Administrador não pode ser alterado.', `/users/groups/${id}/edit`);
+    }
+
+    await pool.query(
+      'UPDATE user_groups SET permissions = $1, updated_at = now() WHERE id = $2',
+      [JSON.stringify(permissions), id]
+    );
+
+    await logAudit(pool, {
+      req,
+      action: 'groups.update_permissions',
+      details: { groupName: group.name, permissions }
+    });
+
+    return redirectWithFlash(req, res, 'success', 'Permissões atualizadas com sucesso.', '/users/groups');
+  } catch (error) {
+    console.error('Erro ao atualizar permissões:', error);
+    return redirectWithFlash(req, res, 'error', 'Erro ao salvar permissões.', `/users/groups/${id}/edit`);
+  }
+});
+
+router.post('/users/groups/:id/delete', ensurePermission('groups.manage'), async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const group = await getGroupById(id);
+    if (!group) return redirectWithFlash(req, res, 'error', 'Grupo não encontrado.', '/users/groups');
+    if (group.name === 'Administrador') {
+      return redirectWithFlash(req, res, 'error', 'O grupo Administrador não pode ser excluído.', '/users/groups');
+    }
+
+    await pool.query('DELETE FROM user_groups WHERE id = $1', [id]);
+    await logAudit(pool, {
+      req,
+      action: 'groups.delete',
+      details: { name: group.name }
+    });
+    return redirectWithFlash(req, res, 'success', 'Grupo excluído com sucesso.', '/users/groups');
+  } catch (error) {
+    console.error('Erro ao excluir grupo:', error);
+    return redirectWithFlash(req, res, 'error', 'Erro ao excluir grupo (verifique se há usuários vinculados).', '/users/groups');
+  }
+});
+
+// --- GESTÃO DE USUÁRIOS ---
+
+router.get('/users', ensurePermission('users'), async (req, res) => {
   const toast = consumeFlash(req);
 
   try {
     const users = await getUsersPageData();
+    const groups = await getUserGroups();
 
     return res.render('users-management', {
       title: 'Usuários - DNSBlock',
       user: req.session.user,
       users,
+      groups,
       toast,
       error: null,
       formData: {
@@ -191,14 +328,19 @@ router.get('/users', ensureAdmin, async (req, res) => {
         fullName: '',
         mustChangePassword: true,
         isAdmin: false,
+        groupId: '',
       },
     });
   } catch (error) {
     console.error('Erro ao carregar usuários:', error);
+    const users = await getUsersPageData();
+    const groups = await getUserGroups();
+
     return res.status(500).render('users-management', {
       title: 'Usuários - DNSBlock',
       user: req.session.user,
-      users: [],
+      users,
+      groups,
       toast,
       error: 'Erro interno ao carregar os usuários.',
       formData: {
@@ -206,39 +348,45 @@ router.get('/users', ensureAdmin, async (req, res) => {
         fullName: '',
         mustChangePassword: true,
         isAdmin: false,
+        groupId: '',
       },
     });
   }
 });
 
-router.post('/users', ensureAdmin, async (req, res) => {
+router.post('/users', ensurePermission('users.create'), async (req, res) => {
   const username = String(req.body.username || '').trim();
   const fullName = String(req.body.fullName || '').trim();
   const password = String(req.body.password || '');
   const mustChangePassword = req.body.mustChangePassword === 'on';
   const isAdmin = req.body.isAdmin === 'on';
+  const groupId = req.body.groupId ? Number(req.body.groupId) : null;
 
   if (!username || !fullName || !password) {
     const users = await getUsersPageData();
+    const groups = await getUserGroups();
     return res.status(400).render('users-management', {
       title: 'Usuários - DNSBlock',
       user: req.session.user,
       users,
+      groups,
       toast: null,
       error: 'Preencha nome completo, usuário e senha inicial.',
-      formData: { username, fullName, mustChangePassword, isAdmin },
+      formData: { username, fullName, mustChangePassword, isAdmin, groupId },
     });
   }
 
   if (password.length < 6) {
     const users = await getUsersPageData();
+    const groups = await getUserGroups();
     return res.status(400).render('users-management', {
       title: 'Usuários - DNSBlock',
       user: req.session.user,
       users,
+      groups,
       toast: null,
       error: 'A senha inicial deve ter pelo menos 6 caracteres.',
-      formData: { username, fullName, mustChangePassword, isAdmin },
+      formData: { username, fullName, mustChangePassword, isAdmin, groupId },
     });
   }
 
@@ -246,9 +394,9 @@ router.post('/users', ensureAdmin, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     await pool.query(
-      `INSERT INTO users (username, password_hash, full_name, must_change_password, password_changed_at, is_admin)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [username, passwordHash, fullName, mustChangePassword, mustChangePassword ? null : new Date(), isAdmin]
+      `INSERT INTO users (username, password_hash, full_name, must_change_password, password_changed_at, is_admin, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [username, passwordHash, fullName, mustChangePassword, mustChangePassword ? null : new Date(), isAdmin, groupId]
     );
 
     await logAudit(pool, {
@@ -259,6 +407,7 @@ router.post('/users', ensureAdmin, async (req, res) => {
         createdFullName: fullName,
         isAdmin,
         mustChangePassword,
+        groupId,
       },
     });
 
@@ -266,20 +415,22 @@ router.post('/users', ensureAdmin, async (req, res) => {
   } catch (error) {
     console.error('Erro ao criar usuário:', error);
     const users = await getUsersPageData();
+    const groups = await getUserGroups();
     const duplicateError = error && error.code === '23505';
 
     return res.status(duplicateError ? 409 : 500).render('users-management', {
       title: 'Usuários - DNSBlock',
       user: req.session.user,
       users,
+      groups,
       toast: null,
       error: duplicateError ? 'Já existe um usuário com esse login.' : 'Erro interno ao criar usuário.',
-      formData: { username, fullName, mustChangePassword, isAdmin },
+      formData: { username, fullName, mustChangePassword, isAdmin, groupId },
     });
   }
 });
 
-router.get('/users/:id/edit', ensureAdmin, async (req, res) => {
+router.get('/users/:id/edit', ensurePermission('users.edit'), async (req, res) => {
   const userId = Number(req.params.id);
   const toast = consumeFlash(req);
 
@@ -289,6 +440,7 @@ router.get('/users/:id/edit', ensureAdmin, async (req, res) => {
 
   try {
     const targetUser = await getUserById(userId);
+    const groups = await getUserGroups();
 
     if (!targetUser) {
       return res.status(404).send('Usuário não encontrado.');
@@ -298,6 +450,7 @@ router.get('/users/:id/edit', ensureAdmin, async (req, res) => {
       title: 'Editar Usuário - DNSBlock',
       user: req.session.user,
       targetUser,
+      groups,
       toast,
       error: null,
       formData: {
@@ -306,6 +459,7 @@ router.get('/users/:id/edit', ensureAdmin, async (req, res) => {
         isAdmin: Boolean(targetUser.is_admin),
         isActive: Boolean(targetUser.is_active),
         mustChangePassword: Boolean(targetUser.must_change_password),
+        groupId: targetUser.group_id,
       },
     });
   } catch (error) {
@@ -314,7 +468,7 @@ router.get('/users/:id/edit', ensureAdmin, async (req, res) => {
   }
 });
 
-router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
+router.post('/users/:id/edit', ensurePermission('users.edit'), async (req, res) => {
   const userId = Number(req.params.id);
 
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -326,10 +480,12 @@ router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
   const isAdmin = req.body.isAdmin === 'on';
   const isActive = req.body.isActive === 'on';
   const mustChangePassword = req.body.mustChangePassword === 'on';
+  const groupId = req.body.groupId ? Number(req.body.groupId) : null;
   const newPassword = String(req.body.newPassword || '');
 
   if (!fullName || !username) {
     const targetUser = await getUserById(userId);
+    const groups = await getUserGroups();
     if (!targetUser) {
       return res.status(404).send('Usuário não encontrado.');
     }
@@ -338,9 +494,10 @@ router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
       title: 'Editar Usuário - DNSBlock',
       user: req.session.user,
       targetUser,
+      groups,
       toast: null,
       error: 'Preencha nome completo e usuário.',
-      formData: { fullName, username, isAdmin, isActive, mustChangePassword },
+      formData: { fullName, username, isAdmin, isActive, mustChangePassword, groupId },
     });
   }
 
@@ -385,7 +542,7 @@ router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
       passwordHash = await bcrypt.hash(newPassword, 10);
     }
 
-    await pool.query(
+     await pool.query(
       `UPDATE users
        SET full_name = $1,
            username = $2,
@@ -397,9 +554,10 @@ router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
              WHEN $6 IS NOT NULL AND $5 = false THEN now()
              WHEN $6 IS NOT NULL AND $5 = true THEN NULL
              ELSE password_changed_at
-           END
-       WHERE id = $7`,
-      [fullName, username, isAdmin, isActive, mustChangePassword, passwordHash, userId]
+           END,
+           group_id = $7
+       WHERE id = $8`,
+      [fullName, username, isAdmin, isActive, mustChangePassword, passwordHash, groupId, userId]
     );
 
     await logAudit(pool, {
@@ -412,6 +570,7 @@ router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
         isAdmin,
         isActive,
         mustChangePassword,
+        groupId,
         passwordChanged: Boolean(newPassword),
       },
     });
@@ -443,7 +602,7 @@ router.post('/users/:id/edit', ensureAdmin, async (req, res) => {
   }
 });
 
-router.post('/users/:id/delete', ensureAdmin, async (req, res) => {
+router.post('/users/:id/delete', ensurePermission('users.delete'), async (req, res) => {
   const userId = Number(req.params.id);
 
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -630,7 +789,7 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/audit', ensureAdmin, async (req, res) => {
+router.get('/audit', ensurePermission('audit'), async (req, res) => {
   const toast = consumeFlash(req);
   const query = String(req.query.q || '').trim();
   const pageSize = sanitizePageSize(req.query.limit);

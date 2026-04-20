@@ -30,8 +30,19 @@
 
           <label class="check-row user-check-row">
             <input name="isAdmin" type="checkbox" <%= formData.isAdmin ? 'checked' : '' %> />
-            <span>Usuário administrador</span>
+            <span>Administrador Master (Acesso Total)</span>
           </label>
+
+          <div style="margin-bottom: 20px;">
+            <label for="groupId">Grupo de Usuário (Perfil de Acesso)</label>
+            <select id="groupId" name="groupId" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--line);">
+              <option value="">Sem grupo específico</option>
+              <% groups.forEach(function(g) { %>
+                <option value="<%= g.id %>" <%= formData.groupId == g.id ? 'selected' : '' %>><%= g.name %></option>
+              <% }) %>
+            </select>
+            <p class="helper-text">Define as permissões granulares caso não seja um Admin Master.</p>
+          </div>
 
           <label class="check-row user-check-row">
             <input name="isActive" type="checkbox" <%= formData.isActive ? 'checked' : '' %> />

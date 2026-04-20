@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
-const { ensureAuthenticated } = require('../middlewares/auth');
+const { ensureAuthenticated, ensurePermission } = require('../middlewares/auth');
 const pool = require('../config/db');
 const { isValidDomain, normalizeDomain } = require('../services/domainValidator');
 const { createNslookupJob, getJob, getPublicJobData } = require('../services/reportJobs');
@@ -13,7 +13,7 @@ const { logAudit } = require('../services/auditLogger');
 const router = express.Router();
 
 // Adiciona domínios a um ofício e retorna JSON com o resultado
-router.post('/notices/add-domains', ensureAuthenticated, async (req, res) => {
+router.post('/notices/add-domains', ensurePermission('notices.add_domains'), async (req, res) => {
   const noticeId = Number(req.body.noticeId);
   const domainsRaw = req.body.domains || '';
   const userId = req.session.user.id;
@@ -385,7 +385,7 @@ router.get('/', (req, res) => {
   return res.redirect('/login');
 });
 
-router.get('/dashboard', ensureAuthenticated, async (req, res) => {
+router.get('/dashboard', ensurePermission('dashboard'), async (req, res) => {
   const toast = consumeFlash(req);
 
   try {
@@ -496,7 +496,7 @@ router.get('/dashboard', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/dns/integration', ensureAuthenticated, async (req, res) => {
+router.get('/dns/integration', ensurePermission('integration'), async (req, res) => {
   const toast = consumeFlash(req);
 
   try {
@@ -528,7 +528,7 @@ router.get('/dns/integration', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/reports/nslookup', ensureAuthenticated, async (req, res) => {
+router.get('/reports/nslookup', ensurePermission('reports'), async (req, res) => {
   const toast = consumeFlash(req);
   let reportJob = null;
   const currentSessionJobId = req.session.nslookupReportJobId || null;
@@ -706,7 +706,7 @@ router.get('/domains/new', ensureAuthenticated, async (req, res) => {
 
 router.post(
   '/notices',
-  ensureAuthenticated,
+  ensurePermission('notices.create'),
   upload.array('noticeFile'),
   async (req, res) => {
     const noticeCode = (req.body.noticeCode || '').trim();
@@ -773,7 +773,7 @@ router.post(
 
 router.post(
   '/notices/add-files',
-  ensureAuthenticated,
+  ensurePermission('notices.add_files'),
   upload.array('noticeFile'),
   async (req, res) => {
     const noticeId = Number(req.body.noticeId);
@@ -832,7 +832,7 @@ router.post(
   // Trecho removido: lógica antiga de cadastro/reativação de domínios não é mais usada
 
 // Marca um ofício como informado/respondido
-router.post('/notices/:id/inform', ensureAuthenticated, async (req, res) => {
+router.post('/notices/:id/inform', ensurePermission('notices.inform'), async (req, res) => {
   const noticeId = Number(req.params.id);
   const informedAt = req.body.informedAt;
   const userId = req.session.user.id;
@@ -1516,7 +1516,7 @@ router.post('/domains/delete/all', ensureAuthenticated, async (req, res) => {
 });
 
 // Listagem de ofícios cadastrados com paginação, busca e download
-router.get('/notices', ensureAuthenticated, async (req, res) => {
+router.get('/notices', ensurePermission('notices'), async (req, res) => {
   const search = (req.query.search || '').trim();
   let where = '1=1';
   let params = [];

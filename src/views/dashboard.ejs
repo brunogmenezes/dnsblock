@@ -12,14 +12,7 @@
       <%- include('partials/topbar', { pageTitle: 'Dashboard', pageSubtitle: 'Visão geral do DNSBlock' }) %>
 
       <main class="content-wrap">
-        <% if (toast && toast.text) { %>
-          <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
-            <div class="toast-title"><%= toast.type === 'error' ? 'Falha na execução' : 'Notificação' %></div>
-            <div class="toast-text"><%= toast.text %></div>
-            <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
-            <div class="toast-bar"></div>
-          </aside>
-        <% } %>
+
       <% if (message) { %>
         <div class="alert alert-success"><%= message %></div>
       <% } %>
@@ -152,27 +145,7 @@
       </section>
     </main>
 
-    <% if (toast && toast.text) { %>
-      <script>
-        (function () {
-          const toast = document.getElementById('app-toast');
-          const closeBtn = document.getElementById('toast-close');
-
-          if (!toast) return;
-
-          function closeToast() {
-            toast.classList.add('toast-out');
-            window.setTimeout(() => toast.remove(), 300);
-          }
-
-          if (closeBtn) {
-            closeBtn.addEventListener('click', closeToast);
-          }
-
-          window.setTimeout(closeToast, 4500);
-        })();
-      </script>
-    <% } %>
+    <%- include('partials/toast') %>
 
     <script>
       (function () {

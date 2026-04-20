@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Editar Permissões: <%= group.name %> - DNSBlock</title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+    <style>
+      .permission-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 24px;
+        margin-top: 24px;
+      }
+      .permission-card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: var(--shadow-sm);
+      }
+      .permission-card h4 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--primary);
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 10px;
+      }
+      .permission-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+        cursor: pointer;
+      }
+      .permission-item input {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+      }
+      .permission-item label {
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--foreground);
+      }
+      .permission-desc {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-left: 28px;
+        margin-top: -8px;
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body class="app-layout">
+    <%- include('partials/sidebar', { activePage: 'groups' }) %>
+    <div class="main-content">
+      <%- include('partials/topbar', { pageTitle: 'Editar Permissões', pageSubtitle: 'Grupo: ' + group.name }) %>
+
+      <main class="content-wrap">
+        <form method="post" action="/users/groups/<%= group.id %>/edit">
+          <div class="table-header" style="margin-bottom: 0;">
+            <h3>Configuração de Acesso</h3>
+            <div style="display: flex; gap: 12px;">
+              <a href="/users/groups" class="btn-secondary">Voltar</a>
+              <button type="submit" class="btn-primary">Salvar Alterações</button>
+            </div>
+          </div>
+
+          <% if (group.name === 'Administrador') { %>
+            <div class="alert alert-info" style="margin-top: 20px;">
+              Este é o grupo mestre. Administradores têm acesso total e irrestrito a todas as funções do sistema.
+            </div>
+          <% } %>
+
+          <div class="permission-grid">
+            <!-- Páginas do Sistema -->
+            <div class="permission-card">
+              <h4>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                Páginas e Menus
+              </h4>
+              <% 
+                const pages = [
+                  { id: 'dashboard', label: 'Dashboard', desc: 'Acesso à visão geral e estatísticas.' },
+                  { id: 'notices', label: 'Ofícios', desc: 'Visualização da lista de ofícios.' },
+                  { id: 'reports', label: 'Relatórios', desc: 'Geração de relatórios de bloqueio.' },
+                  { id: 'integration', label: 'Integração DNS', desc: 'Configurações de API e tokens.' },
+                  { id: 'audit', label: 'Auditoria', desc: 'Visualização de logs do sistema.' },
+                  { id: 'users', label: 'Usuários', desc: 'Gestão de contas e grupos.' }
+                ];
+              %>
+              <% pages.forEach(p => { %>
+                <label class="permission-item">
+                  <input type="checkbox" name="permissions[pages][]" value="<%= p.id %>" <%= group.permissions.pages && group.permissions.pages.includes(p.id) ? 'checked' : '' %> <%= group.name === 'Administrador' ? 'disabled checked' : '' %>>
+                  <span><%= p.label %></span>
+                </label>
+                <p class="permission-desc"><%= p.desc %></p>
+              <% }) %>
+            </div>
+
+            <!-- Ações em Ofícios -->
+            <div class="permission-card">
+              <h4>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                Ações em Ofícios
+              </h4>
+              <% 
+                const noticeActions = [
+                  { id: 'notices.create', label: 'Cadastrar Ofício', desc: 'Permite criar novos registros de ofícios.' },
+                  { id: 'notices.add_domains', label: 'Gerenciar Domínios', desc: 'Permite adicionar/remover domínios.' },
+                  { id: 'notices.add_files', label: 'Anexar Arquivos', desc: 'Permite subir PDFs e documentos.' },
+                  { id: 'notices.inform', label: 'Marcar Respondido', desc: 'Permite finalizar o ciclo do ofício.' }
+                ];
+              %>
+              <% noticeActions.forEach(a => { %>
+                <label class="permission-item">
+                  <input type="checkbox" name="permissions[actions][]" value="<%= a.id %>" <%= group.permissions.actions && group.permissions.actions.includes(a.id) ? 'checked' : '' %> <%= group.name === 'Administrador' ? 'disabled checked' : '' %>>
+                  <span><%= a.label %></span>
+                </label>
+                <p class="permission-desc"><%= a.desc %></p>
+              <% }) %>
+            </div>
+
+            <!-- Ações em Usuários -->
+            <div class="permission-card">
+              <h4>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                Ações em Usuários
+              </h4>
+              <% 
+                const userActions = [
+                  { id: 'users.create', label: 'Criar Usuários', desc: 'Permite cadastrar novas contas.' },
+                  { id: 'users.edit', label: 'Editar Usuários', desc: 'Permite alterar dados de terceiros.' },
+                  { id: 'users.delete', label: 'Excluir Usuários', desc: 'Permite remover contas do sistema.' },
+                  { id: 'groups.manage', label: 'Gerir Grupos', desc: 'Permite criar e editar permissões de grupos.' }
+                ];
+              %>
+              <% userActions.forEach(a => { %>
+                <label class="permission-item">
+                  <input type="checkbox" name="permissions[actions][]" value="<%= a.id %>" <%= group.permissions.actions && group.permissions.actions.includes(a.id) ? 'checked' : '' %> <%= group.name === 'Administrador' ? 'disabled checked' : '' %>>
+                  <span><%= a.label %></span>
+                </label>
+                <p class="permission-desc"><%= a.desc %></p>
+              <% }) %>
+            </div>
+          </div>
+        </form>
+      </main>
+    </div>
+    <%- include('partials/toast') %>
+  </body>
+</html>

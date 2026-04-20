@@ -77,8 +77,19 @@
 
           <label class="check-row user-form-grid-span user-check-row">
             <input name="isAdmin" type="checkbox" <%= formData.isAdmin ? 'checked' : '' %> />
-            <span>Permitir gerenciar usuários</span>
+            <span>Permitir gerenciar usuários (Admin Master)</span>
           </label>
+
+          <div class="user-form-grid-span user-field">
+            <label for="groupId">Grupo de Usuário (Perfil de Acesso)</label>
+            <select id="groupId" name="groupId">
+              <option value="">Sem grupo específico</option>
+              <% groups.forEach(function(g) { %>
+                <option value="<%= g.id %>" <%= formData.groupId == g.id ? 'selected' : '' %>><%= g.name %></option>
+              <% }) %>
+            </select>
+            <p class="helper-text">O grupo define quais páginas e ações este usuário poderá acessar.</p>
+          </div>
 
           <div class="user-form-grid-span user-submit-wrap">
             <button type="submit" class="btn-primary">Criar usuário</button>
@@ -97,11 +108,14 @@
             <input id="users-filter" type="text" placeholder="Nome ou login..." />
           </div>
           <div>
-            <label for="users-profile-filter" style="margin-bottom: 4px;">Perfil</label>
+            <label for="users-profile-filter" style="margin-bottom: 4px;">Perfil / Grupo</label>
             <select id="users-profile-filter">
-              <option value="">Todos os perfis</option>
-              <option value="admin">Administrador</option>
-              <option value="user">Usuário</option>
+              <option value="">Todos</option>
+              <option value="admin">Administrador Master</option>
+              <% groups.forEach(function(g) { %>
+                <option value="group-<%= g.id %>"><%= g.name %></option>
+              <% }) %>
+              <option value="no-group">Sem Grupo</option>
             </select>
           </div>
           <div>
@@ -121,17 +135,16 @@
               <tr>
                 <th>Nome</th>
                 <th>Usuário</th>
-                <th>Perfil</th>
+                <th>Grupo / Perfil</th>
                 <th>Status</th>
                 <th>Troca obrigatória</th>
-                <th>Última troca</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               <% if (!users || users.length === 0) { %>
                 <tr class="empty-row">
-                  <td colspan="7">Nenhum usuário cadastrado.</td>
+                  <td colspan="6">Nenhum usuário cadastrado.</td>
                 </tr>
               <% } %>
               <% if (users && users.length > 0) { %>
@@ -140,14 +153,21 @@
                     class="data-row"
                     data-name="<%= (row.full_name || '').toLowerCase() %>"
                     data-username="<%= (row.username || '').toLowerCase() %>"
-                    data-profile="<%= row.is_admin ? 'admin' : 'user' %>"
+                    data-profile="<%= row.is_admin ? 'admin' : (row.group_id ? 'group-' + row.group_id : 'no-group') %>"
                   >
                     <td><%= row.full_name %></td>
                     <td><%= row.username %></td>
-                    <td><span class="status-pill <%= row.is_admin ? 'is-admin' : 'is-user' %>"><%= row.is_admin ? 'Administrador' : 'Usuário' %></span></td>
+                    <td>
+                      <% if (row.is_admin) { %>
+                        <span class="status-pill is-admin">Admin Master</span>
+                      <% } else if (row.group_name) { %>
+                        <span class="status-pill is-user"><%= row.group_name %></span>
+                      <% } else { %>
+                        <span class="status-pill is-inactive">Sem Grupo</span>
+                      <% } %>
+                    </td>
                     <td><span class="status-pill <%= row.is_active ? 'is-active' : 'is-inactive' %>"><%= row.is_active ? 'Ativo' : 'Inativo' %></span></td>
                     <td><%= row.must_change_password ? 'Sim' : 'Não' %></td>
-                    <td><%= row.password_changed_at ? new Date(row.password_changed_at).toLocaleString('pt-BR') : 'Nunca' %></td>
                     <td>
                       <div class="user-actions-cell">
                         <a href="/users/<%= row.id %>/edit" class="btn-secondary user-action-btn">Editar</a>
@@ -315,27 +335,7 @@
       })();
     </script>
 
-    <% if (toast && toast.text) { %>
-      <script>
-        (function () {
-          const toast = document.getElementById('app-toast');
-          const closeBtn = document.getElementById('toast-close');
-
-          if (!toast) return;
-
-          function closeToast() {
-            toast.classList.add('toast-out');
-            window.setTimeout(() => toast.remove(), 300);
-          }
-
-          if (closeBtn) {
-            closeBtn.addEventListener('click', closeToast);
-          }
-
-          window.setTimeout(closeToast, 4500);
-        })();
-      </script>
-    <% } %>
+    <%- include('partials/toast') %>
     </div> <!-- .main-content -->
   </body>
 </html>
