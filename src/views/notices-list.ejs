@@ -68,9 +68,21 @@
           </div>
         </div>
 
-        <form method="get" action="/notices" class="table-controls" style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
-          <input type="text" name="search" id="search-input" value="<%= search || '' %>" placeholder="Buscar por número do ofício..." style="flex:2;min-width:220px;max-width:400px;padding:8px 12px;font-size:1rem;" autocomplete="off" />
-          <button type="submit" class="btn-secondary">Buscar</button>
+        <form method="get" action="/notices" class="table-controls" style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px;">
+          <div style="flex:2;min-width:220px;max-width:400px;">
+            <label for="search-input" style="margin-bottom: 4px;">Buscar Ofício</label>
+            <input type="text" name="search" id="search-input" value="<%= search || '' %>" placeholder="Número do ofício..." style="padding:8px 12px;font-size:1rem;" autocomplete="off" />
+          </div>
+          <div>
+            <label for="notices-page-size" style="margin-bottom: 4px;">Exibir</label>
+            <select id="notices-page-size" style="padding:8px 12px;">
+              <option value="5" selected>5</option>
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-secondary" style="height: 42px;">Buscar</button>
         </form>
 
         <div class="table-container">
@@ -87,14 +99,14 @@
                 <!-- coluna Download removida -->
               </tr>
             </thead>
-            <tbody>
+            <tbody id="notices-body">
               <% if (!notices || notices.length === 0) { %>
                 <tr>
-                  <td colspan="5">Nenhum ofício cadastrado.</td>
+                  <td colspan="7">Nenhum ofício cadastrado.</td>
                 </tr>
               <% } else { %>
                 <% notices.forEach(function (notice) { %>
-                  <tr class="status-<%= notice.status || 'registered' %>">
+                  <tr class="status-<%= notice.status || 'registered' %> data-row">
                     <td><%= notice.notice_code %></td>
                     <td>
                       <span title="<%= notice.original_file_name %>">
@@ -152,7 +164,11 @@
           </table>
         </div>
 
-        <!-- Paginação removida: todos os itens são exibidos -->
+        <div class="table-pagination" id="notices-pagination" style="display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 16px;">
+          <button type="button" id="notices-prev" class="btn-secondary">Anterior</button>
+          <span id="notices-page-info" style="font-size: 0.9rem; font-weight: 600; color: var(--muted);">Página 1 de 1</span>
+          <button type="button" id="notices-next" class="btn-secondary">Próxima</button>
+        </div>
       </section>
     </main>
 
@@ -542,6 +558,61 @@
           document.getElementById('form-add-notice').reset();
         }
       };
+
+      // Paginação Cliente-side para Ofícios
+      (function() {
+        const tbody = document.getElementById('notices-body');
+        const allRows = Array.from(tbody.querySelectorAll('tr.data-row'));
+        const pageSizeSelect = document.getElementById('notices-page-size');
+        const prevBtn = document.getElementById('notices-prev');
+        const nextBtn = document.getElementById('notices-next');
+        const pageInfo = document.getElementById('notices-page-info');
+
+        let currentPage = 1;
+        let pageSize = parseInt(pageSizeSelect.value) || 5;
+
+        function updatePagination() {
+          const totalRows = allRows.length;
+          const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+          
+          if (currentPage > totalPages) currentPage = totalPages;
+          if (currentPage < 1) currentPage = 1;
+
+          const start = (currentPage - 1) * pageSize;
+          const end = start + pageSize;
+
+          allRows.forEach((row, index) => {
+            row.style.display = (index >= start && index < end) ? '' : 'none';
+          });
+
+          pageInfo.textContent = `Página ${currentPage} de ${totalPages} (${totalRows} registros)`;
+          prevBtn.disabled = currentPage <= 1;
+          nextBtn.disabled = currentPage >= totalPages;
+        }
+
+        pageSizeSelect.onchange = function() {
+          pageSize = parseInt(this.value);
+          currentPage = 1;
+          updatePagination();
+        };
+
+        prevBtn.onclick = function() {
+          if (currentPage > 1) {
+            currentPage--;
+            updatePagination();
+          }
+        };
+
+        nextBtn.onclick = function() {
+          const totalPages = Math.ceil(allRows.length / pageSize);
+          if (currentPage < totalPages) {
+            currentPage++;
+            updatePagination();
+          }
+        };
+
+        updatePagination();
+      })();
     </script>
     </div> <!-- .main-content -->
   </body>

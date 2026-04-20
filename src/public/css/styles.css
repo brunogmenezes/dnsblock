@@ -766,6 +766,16 @@ tr.status-registered { background-color: transparent; }
 .mb-4 { margin-bottom: 1rem; }
 .is-hidden { display: none; }
 
+.autofill-trap {
+  position: absolute;
+  opacity: 0;
+  height: 0;
+  width: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .app-layout {

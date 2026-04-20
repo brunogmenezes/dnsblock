@@ -75,17 +75,30 @@ router.post('/notices/add-domains', ensureAuthenticated, async (req, res) => {
       );
     }
 
-    return res.json({
-      success: true,
-      validCount,
-      invalidCount,
-      registeredCount
-    });
-  } catch (error) {
-    console.error('Erro ao adicionar domínios ao ofício:', error);
-    return res.status(500).json({ error: 'Erro ao adicionar domínios ao ofício.' });
+      await logAudit(pool, {
+        req,
+        action: 'notices.add_domains',
+        details: {
+          noticeId,
+          validCount,
+          invalidCount,
+          registeredCount,
+          statusUpdatedTo: validCount > 0 ? 'blocked' : null
+        },
+      });
+
+      return res.json({
+        success: true,
+        validCount,
+        invalidCount,
+        registeredCount
+      });
+    } catch (error) {
+      console.error('Erro ao adicionar domínios:', error);
+      return res.status(500).json({ error: 'Erro interno ao processar domínios.' });
+    }
   }
-});
+);
 
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 const reportsDir = path.join(__dirname, '..', 'reports');
@@ -731,6 +744,17 @@ router.post(
         }
       }
 
+      await logAudit(pool, {
+        req,
+        action: 'notices.create',
+        details: {
+          noticeId: newNoticeId,
+          noticeCode,
+          noticeName,
+          fileCount: files ? files.length : 0
+        },
+      });
+
       setFlash(req, 'success', 'Ofício cadastrado com sucesso!');
       return res.redirect('/notices');
     } catch (error) {
@@ -781,6 +805,15 @@ router.post(
         );
       }
 
+      await logAudit(pool, {
+        req,
+        action: 'notices.add_files',
+        details: {
+          noticeId,
+          fileCount: files.length
+        },
+      });
+
       setFlash(req, 'success', 'Arquivo(s) anexado(s) com sucesso!');
       return res.redirect('/notices');
     } catch (error) {
@@ -824,7 +857,16 @@ router.post('/notices/:id/inform', ensureAuthenticated, async (req, res) => {
       [informedAt, userId, noticeId]
     );
 
-    return res.json({ success: true });
+      await logAudit(pool, {
+        req,
+        action: 'notices.inform',
+        details: {
+          noticeId,
+          informedAt
+        },
+      });
+
+      return res.json({ success: true });
   } catch (error) {
     console.error('Erro ao marcar ofício como informado:', error);
     return res.status(500).json({ error: 'Erro interno ao atualizar status do ofício.' });
