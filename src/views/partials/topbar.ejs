@@ -132,6 +132,9 @@
           if (response.ok) {
             alert(result.message || 'Senha alterada com sucesso!');
             hideModal();
+            if (result.redirect) {
+              window.location.href = result.redirect;
+            }
           } else {
             errorMsg.textContent = result.error || 'Erro ao alterar senha.';
             errorMsg.style.display = 'block';

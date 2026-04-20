@@ -510,7 +510,7 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
   const forceChange = Boolean(req.session.user.mustChangePassword);
 
   if (!currentPassword || !newPassword || !confirmPassword) {
-    if (req.accepts('json')) {
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
       return res.status(400).json({ error: 'Preencha todos os campos da senha.' });
     }
     return res.status(400).render('account-password', {
@@ -523,7 +523,7 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
   }
 
   if (newPassword.length < 6) {
-    if (req.accepts('json')) {
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
       return res.status(400).json({ error: 'A nova senha deve ter pelo menos 6 caracteres.' });
     }
     return res.status(400).render('account-password', {
@@ -536,7 +536,7 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
   }
 
   if (newPassword !== confirmPassword) {
-    if (req.accepts('json')) {
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
       return res.status(400).json({ error: 'A confirmação da nova senha não confere.' });
     }
     return res.status(400).render('account-password', {
@@ -555,7 +555,7 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      if (req.accepts('json')) {
+      if (req.headers.accept && req.headers.accept.includes('application/json')) {
         return res.status(404).json({ error: 'Usuário não encontrado.' });
       }
       return res.status(404).render('account-password', {
@@ -570,7 +570,7 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
     const currentMatches = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
 
     if (!currentMatches) {
-      if (req.accepts('json')) {
+      if (req.headers.accept && req.headers.accept.includes('application/json')) {
         return res.status(400).json({ error: 'A senha atual informada está incorreta.' });
       }
       return res.status(400).render('account-password', {
@@ -603,10 +603,11 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
 
     req.session.user.mustChangePassword = false;
 
-    if (req.accepts('json')) {
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
       return res.json({ 
         success: true, 
-        message: forceChange ? 'Senha alterada com sucesso. Agora você pode usar o sistema normalmente.' : 'Sua senha foi alterada com sucesso.' 
+        message: forceChange ? 'Senha alterada com sucesso. Agora você pode usar o sistema normalmente.' : 'Sua senha foi alterada com sucesso.',
+        redirect: forceChange ? '/dashboard' : null
       });
     }
 
@@ -615,11 +616,11 @@ router.post('/account/password', ensureAuthenticated, async (req, res) => {
       res,
       'success',
       forceChange ? 'Senha alterada com sucesso. Agora você pode usar o sistema normalmente.' : 'Sua senha foi alterada com sucesso.',
-      '/account/password'
+      forceChange ? '/dashboard' : '/account/password'
     );
   } catch (error) {
     console.error('Erro ao alterar senha:', error);
-    if (req.accepts('json')) {
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
       return res.status(500).json({ error: 'Erro interno ao alterar a senha.' });
     }
     return res.status(500).render('account-password', {
