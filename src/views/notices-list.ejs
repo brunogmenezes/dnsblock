@@ -59,9 +59,9 @@
             <button id="close-modal-add-notice" style="position:absolute;top:8px;right:12px;background:none;border:none;font-size:1.5rem;cursor:pointer;">&times;</button>
             <h2 style="margin-top:0;margin-bottom:18px;">Cadastrar novo ofício</h2>
             <form id="form-add-notice" method="post" action="/notices" enctype="multipart/form-data" class="form-stack" style="gap:10px;">
-              <label for="noticeCode">Número do Ofício</label>
+              <label for="noticeCode">Número do Ofício <span style="color:var(--danger);">*</span></label>
               <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" required />
-              <label for="noticeName">Nome do Ofício</label>
+              <label for="noticeName">Nome do Ofício <span style="color:var(--danger);">*</span></label>
               <input id="noticeName" name="noticeName" type="text" placeholder="Nome do ofício" required />
               
               <div style="display:flex; gap:12px;">
@@ -127,7 +127,7 @@
                     <td><%= notice.notice_code %></td>
                     <td>
                       <span title="<%= notice.original_file_name %>">
-                        <%= notice.notice_code %>
+                        <%= notice.original_file_name %>
                       </span>
                       <% if (notice.files && notice.files.length > 0) { %>
                         <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">

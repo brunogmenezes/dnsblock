@@ -21,9 +21,9 @@
 
       <section class="form-panel">
         <form method="post" action="/notices" class="form-stack">
-          <label for="noticeCode">Número do Ofício</label>
+          <label for="noticeCode">Número do Ofício <span style="color:var(--danger);">*</span></label>
           <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" value="<%= inputNoticeCode || '' %>" required />
-          <label for="noticeName">Nome do Ofício</label>
+          <label for="noticeName">Nome do Ofício <span style="color:var(--danger);">*</span></label>
           <input id="noticeName" name="noticeName" type="text" placeholder="Nome do ofício" required />
           <button type="submit" class="btn-primary">Salvar Ofício</button>
         </form>
