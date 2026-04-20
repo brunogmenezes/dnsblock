@@ -1856,8 +1856,11 @@ router.post('/api/domains/extract-from-attachment', ensurePermission('dashboard'
     console.log(`Enviando resposta com ${filteredDomains.length} domínios para o cliente.`);
     return res.json({ success: true, domains: filteredDomains });
   } catch (error) {
-    console.error('Erro ao processar anexo:', error);
-    return res.status(500).json({ error: 'Falha ao ler o arquivo selecionado.' });
+    console.error('ERRO CRÍTICO NO PROCESSO DE EXTRAÇÃO:', error);
+    return res.status(500).json({ 
+      error: 'Falha ao processar o arquivo.', 
+      details: error.message 
+    });
   }
 });
 
