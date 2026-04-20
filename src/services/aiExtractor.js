@@ -47,8 +47,8 @@ async function extractDomainsWithAI(text) {
     throw new Error('A API do Google retornou erro 404. Verifique se a API "Generative Language" está ativada no seu console do Google Cloud para este projeto.');
   }
 
-  // Removido o limite restrito para ler o arquivo completo (limite de segurança de 1MB)
-  const truncatedText = text.length > 1000000 ? text.substring(0, 1000000) + '\n... [TEXTO TRUNCADO POR SEGURANÇA] ...' : text;
+  // Limite de 50k caracteres para evitar que a requisição demore mais de 60s e cause timeout no proxy (Nginx/Apache)
+  const truncatedText = text.length > 50000 ? text.substring(0, 50000) + '\n... [TEXTO TRUNCADO PARA EVITAR TIMEOUT] ...' : text;
 
   const prompt = `
     Você é um assistente especializado em segurança cibernética e análise de documentos jurídicos.
