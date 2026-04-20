@@ -377,6 +377,128 @@ async function getDnsIntegrationViewData(req) {
   };
 }
 
+router.get('/api/notices', ensurePermission('dashboard'), async (req, res) => {
+  const search = (req.query.search || '').trim();
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, parseInt(req.query.limit) || 10);
+  const offset = (page - 1) * limit;
+
+  try {
+    let where = '1=1';
+    let params = [];
+    if (search) {
+      where += ' AND notice_code ILIKE $1';
+      params.push(`%${search}%`);
+    }
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT id, notice_code, created_at, status,
+                (SELECT COUNT(*) FROM domains WHERE notice_id = notices.id AND is_active = true) as active_domains
+         FROM notices
+         WHERE ${where}
+         ORDER BY created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      ),
+      pool.query(`SELECT COUNT(*) FROM notices WHERE ${where}`, params)
+    ]);
+
+    res.json({
+      notices: dataResult.rows,
+      total: parseInt(countResult.rows[0].count),
+      page,
+      limit
+    });
+  } catch (error) {
+    console.error('Erro na API de ofícios:', error);
+    res.status(500).json({ error: 'Erro ao buscar ofícios' });
+  }
+});
+
+router.get('/api/notices/:id/domains', ensurePermission('dashboard'), async (req, res) => {
+  const noticeId = req.params.id === 'null' ? null : parseInt(req.params.id);
+  const search = (req.query.search || '').trim();
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, parseInt(req.query.limit) || 50);
+  const offset = (page - 1) * limit;
+
+  try {
+    let where = noticeId === null ? 'notice_id IS NULL' : 'notice_id = $1';
+    let params = noticeId === null ? [] : [noticeId];
+
+    if (search) {
+      where += ` AND domain_name ILIKE $${params.length + 1}`;
+      params.push(`%${search}%`);
+    }
+
+    where += ' AND is_active = true';
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT d.id, d.domain_name, d.blocked_at as created_at,
+                COALESCE((SELECT executed_at FROM domain_executions WHERE domain_id = d.id ORDER BY executed_at DESC LIMIT 1), d.blocked_at) as executed_at
+         FROM domains d
+         WHERE ${where}
+         ORDER BY d.id DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      ),
+      pool.query(`SELECT COUNT(*) FROM domains WHERE ${where}`, params)
+    ]);
+
+    res.json({
+      domains: dataResult.rows,
+      total: parseInt(countResult.rows[0].count),
+      page,
+      limit
+    });
+  } catch (error) {
+    console.error('Erro na API de domínios por ofício:', error);
+    res.status(500).json({ error: 'Erro ao buscar domínios' });
+  }
+});
+
+router.get('/api/domains/global', ensurePermission('dashboard'), async (req, res) => {
+  const search = (req.query.search || '').trim();
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, parseInt(req.query.limit) || 10);
+  const offset = (page - 1) * limit;
+
+  try {
+    let where = 'd.is_active = true';
+    let params = [];
+    if (search) {
+      where += ' AND d.domain_name ILIKE $1';
+      params.push(`%${search}%`);
+    }
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT d.id, d.domain_name, d.blocked_at as created_at, n.notice_code,
+                COALESCE((SELECT executed_at FROM domain_executions WHERE domain_id = d.id ORDER BY executed_at DESC LIMIT 1), d.blocked_at) as executed_at
+         FROM domains d
+         LEFT JOIN notices n ON d.notice_id = n.id
+         WHERE ${where}
+         ORDER BY d.id DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      ),
+      pool.query(`SELECT COUNT(*) FROM domains d WHERE ${where}`, params)
+    ]);
+
+    res.json({
+      domains: dataResult.rows,
+      total: parseInt(countResult.rows[0].count),
+      page,
+      limit
+    });
+  } catch (error) {
+    console.error('Erro na API de domínios global:', error);
+    res.status(500).json({ error: 'Erro ao buscar domínios globais' });
+  }
+});
+
 router.get('/', (req, res) => {
   if (req.session.user) {
     return res.redirect('/dashboard');
@@ -389,98 +511,29 @@ router.get('/dashboard', ensurePermission('dashboard'), async (req, res) => {
   const toast = consumeFlash(req);
 
   try {
-    const [{ rows: totalsRows }, { rows: blockedRows }] = await Promise.all([
+    const [{ rows: totalsRows }, { rows: noticesCountRows }] = await Promise.all([
       pool.query(
         `SELECT
             COUNT(*) FILTER (WHERE is_active = true) AS total_count,
             COUNT(*) FILTER (WHERE is_active = true AND notice_id IS NOT NULL) AS with_notice_count,
             COUNT(*) FILTER (WHERE is_active = true AND notice_id IS NULL) AS without_notice_count
-         FROM domains
-         `
+         FROM domains`
       ),
-      pool.query(
-        `SELECT * FROM (
-          SELECT
-              d.id,
-              d.domain_name,
-              d.is_active,
-              COALESCE(last_exec.executed_at, d.blocked_at, d.created_at) AS executed_at,
-              n.id AS notice_id,
-              n.notice_code,
-              n.original_file_name
-           FROM notices n
-           LEFT JOIN domains d ON d.notice_id = n.id
-           LEFT JOIN LATERAL (
-             SELECT executed_at
-             FROM domain_executions
-             WHERE domain_id = d.id
-             ORDER BY executed_at DESC
-             LIMIT 1
-           ) last_exec ON true
-           
-           UNION ALL
-           
-           SELECT
-              d.id,
-              d.domain_name,
-              d.is_active,
-              COALESCE(last_exec.executed_at, d.blocked_at, d.created_at) AS executed_at,
-              NULL AS notice_id,
-              'Sem ofício' AS notice_code,
-              NULL AS original_file_name
-           FROM domains d
-           LEFT JOIN LATERAL (
-             SELECT executed_at
-             FROM domain_executions
-             WHERE domain_id = d.id
-             ORDER BY executed_at DESC
-             LIMIT 1
-           ) last_exec ON true
-           WHERE d.notice_id IS NULL
-         ) combined
-         ORDER BY notice_code, executed_at DESC
-         LIMIT 2000`
-      ),
+      pool.query('SELECT COUNT(*) AS total_notices FROM notices')
     ]);
 
-    const groupsMap = new Map();
-    const allRows = Array.from(blockedRows);
-    
-    // Iterar sobre os rows para criar grupos e adicionar domínios ativos
-    for (const row of allRows) {
-      // Criar o grupo baseado em notice_id/notice_code (mesmo se não houver domínio)
-      const key = row.notice_id ? `notice-${row.notice_id}` : 'without-notice';
-      if (!groupsMap.has(key)) {
-        groupsMap.set(key, {
-          noticeId: row.notice_id || null,
-          noticeCode: row.notice_code || 'Sem ofício',
-          fileName: row.original_file_name || null,
-          domains: [],
-        });
-      }
-      
-      // Adicionar domínio apenas se ele existe (row.id não é null) e está ativo
-      if (row.id && row.is_active === true) {
-        groupsMap.get(key).domains.push({
-          domainName: row.domain_name,
-          executedAt: row.executed_at,
-        });
-      }
-    }
-
-    const blockedGroups = Array.from(groupsMap.values());
-
-    // Contar ofícios (grupos) separando os sem ofício
-    const totalNotices = blockedGroups.filter(g => g.noticeId !== null).length;
+    const totals = {
+      ...totalsRows[0],
+      total_notices: parseInt(noticesCountRows[0].total_notices)
+    };
 
     return res.render('dashboard', {
       title: 'Dashboard - DNSBlock',
       user: req.session.user,
-      totals: { ...totalsRows[0], total_notices: totalNotices },
-      blockedGroups,
-      message: null,
-      error: null,
+      totals,
       toast,
+      message: null,
+      error: null
     });
   } catch (error) {
     console.error('Erro ao carregar dashboard:', error);
@@ -488,10 +541,9 @@ router.get('/dashboard', ensurePermission('dashboard'), async (req, res) => {
       title: 'Dashboard - DNSBlock',
       user: req.session.user,
       totals: { total_count: 0, with_notice_count: 0, without_notice_count: 0, total_notices: 0 },
-      blockedGroups: [],
-      message: null,
-      error: 'Erro interno ao carregar dashboard.',
       toast,
+      message: null,
+      error: 'Erro ao carregar os dados do dashboard.'
     });
   }
 });
@@ -1347,7 +1399,11 @@ router.post('/domains/delete/by-domain', ensureAuthenticated, async (req, res) =
   const normalizedDomain = normalizeDomain(domainInput);
 
   if (!normalizedDomain || !isValidDomain(normalizedDomain)) {
-    setFlash(req, 'error', 'Informe um domínio válido para exclusão.');
+    const errMsg = 'Informe o nome do domínio para exclusão.';
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.status(400).json({ error: errMsg });
+    }
+    setFlash(req, 'error', errMsg);
     return res.redirect('/dashboard');
   }
 
@@ -1381,7 +1437,11 @@ router.post('/domains/delete/by-domain', ensureAuthenticated, async (req, res) =
     }
 
     if (result.rowCount === 0) {
-      setFlash(req, 'info', `Nenhum domínio ativo encontrado com o nome ${normalizedDomain}.`);
+      const infoMsg = `Nenhum domínio ativo encontrado com o nome ${normalizedDomain}.`;
+      if (req.headers.accept && req.headers.accept.includes('application/json')) {
+        return res.json({ success: true, message: infoMsg });
+      }
+      setFlash(req, 'info', infoMsg);
       return res.redirect('/dashboard');
     }
 
@@ -1394,10 +1454,18 @@ router.post('/domains/delete/by-domain', ensureAuthenticated, async (req, res) =
       },
     });
 
-    setFlash(req, 'success', `Domínio ${normalizedDomain} excluído com sucesso.`);
+    const successMsg = `Domínio ${normalizedDomain} excluído com sucesso.`;
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.json({ success: true, message: successMsg });
+    }
+
+    setFlash(req, 'success', successMsg);
     return res.redirect('/dashboard');
   } catch (error) {
     console.error('Erro ao excluir domínio por nome:', error);
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.status(500).json({ error: 'Erro ao excluir domínio por nome.' });
+    }
     setFlash(req, 'error', 'Erro ao excluir domínio por nome.');
     return res.redirect('/dashboard');
   }
@@ -1407,7 +1475,11 @@ router.post('/domains/delete/by-notice', ensureAuthenticated, async (req, res) =
   const noticeCode = (req.body.noticeCode || '').trim();
 
   if (!noticeCode) {
-    setFlash(req, 'error', 'Informe o número do ofício para exclusão.');
+    const errMsg = 'Informe o número do ofício para exclusão.';
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.status(400).json({ error: errMsg });
+    }
+    setFlash(req, 'error', errMsg);
     return res.redirect('/dashboard');
   }
 
@@ -1443,7 +1515,11 @@ router.post('/domains/delete/by-notice', ensureAuthenticated, async (req, res) =
     }
 
     if (result.rowCount === 0) {
-      setFlash(req, 'info', `Nenhum domínio ativo encontrado para o ofício ${noticeCode}.`);
+      const infoMsg = `Nenhum domínio ativo encontrado para o ofício ${noticeCode}.`;
+      if (req.headers.accept && req.headers.accept.includes('application/json')) {
+        return res.json({ success: true, message: infoMsg });
+      }
+      setFlash(req, 'info', infoMsg);
       return res.redirect('/dashboard');
     }
 
@@ -1456,10 +1532,18 @@ router.post('/domains/delete/by-notice', ensureAuthenticated, async (req, res) =
       },
     });
 
-    setFlash(req, 'success', `Exclusão concluída. ${result.rowCount} domínio(s) removido(s) do ofício ${noticeCode}.`);
+    const successMsg = `Exclusão concluída. ${result.rowCount} domínio(s) removido(s) do ofício ${noticeCode}.`;
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.json({ success: true, message: successMsg });
+    }
+
+    setFlash(req, 'success', successMsg);
     return res.redirect('/dashboard');
   } catch (error) {
     console.error('Erro ao excluir domínios por ofício:', error);
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.status(500).json({ error: 'Erro ao excluir domínios por ofício.' });
+    }
     setFlash(req, 'error', 'Erro ao excluir domínios por ofício.');
     return res.redirect('/dashboard');
   }
@@ -1494,7 +1578,11 @@ router.post('/domains/delete/all', ensureAuthenticated, async (req, res) => {
     }
 
     if (result.rowCount === 0) {
-      setFlash(req, 'info', 'Nenhum domínio ativo para excluir.');
+      const infoMsg = 'Nenhum domínio ativo para excluir.';
+      if (req.headers.accept && req.headers.accept.includes('application/json')) {
+        return res.json({ success: true, message: infoMsg });
+      }
+      setFlash(req, 'info', infoMsg);
       return res.redirect('/dashboard');
     }
 
@@ -1506,10 +1594,18 @@ router.post('/domains/delete/all', ensureAuthenticated, async (req, res) => {
       },
     });
 
-    setFlash(req, 'success', `Exclusão concluída. ${result.rowCount} domínio(s) removido(s) da blocklist.`);
+    const successMsg = `Exclusão concluída. ${result.rowCount} domínio(s) removido(s) da blocklist.`;
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.json({ success: true, message: successMsg });
+    }
+
+    setFlash(req, 'success', successMsg);
     return res.redirect('/dashboard');
   } catch (error) {
     console.error('Erro ao excluir todos os domínios:', error);
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.status(500).json({ error: 'Erro ao excluir todos os domínios.' });
+    }
     setFlash(req, 'error', 'Erro ao excluir todos os domínios.');
     return res.redirect('/dashboard');
   }

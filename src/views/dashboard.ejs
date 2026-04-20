@@ -5,6 +5,286 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title><%= title %></title>
     <link rel="stylesheet" href="/public/css/styles.css" />
+    <style>
+      /* Dashboard Refactor: Master-Detail Layout */
+      .dashboard-master-detail {
+        display: grid;
+        grid-template-columns: 350px 1fr;
+        gap: 24px;
+        margin-bottom: 32px;
+        height: 650px;
+      }
+
+      .master-pane, .detail-pane {
+        background: var(--surface);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow-sm);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .pane-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--surface-2);
+      }
+
+      .pane-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .pane-search {
+        padding: 12px 16px;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .pane-search input {
+        width: 100%;
+        padding: 10px 14px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line-strong);
+        font-size: 0.9rem;
+        transition: var(--transition);
+      }
+
+      .pane-search input:focus {
+        border-color: var(--brand);
+        outline: none;
+        box-shadow: 0 0 0 3px var(--brand-light);
+      }
+
+      .pane-content {
+        flex: 1;
+        overflow-y: auto;
+        background: #fff;
+      }
+
+      /* Notice List Item */
+      .notice-item {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--line);
+        cursor: pointer;
+        transition: var(--transition);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .notice-item:hover {
+        background: var(--bg-soft);
+      }
+
+      .notice-item.active {
+        background: var(--brand-light);
+        border-left: 4px solid var(--brand);
+      }
+
+      .notice-item-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .notice-item-code {
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .notice-item-meta {
+        font-size: 0.8rem;
+        color: var(--muted);
+        display: flex;
+        gap: 12px;
+      }
+
+      .notice-item-status {
+        padding: 2px 8px;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      /* Detail Empty State */
+      .detail-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--muted);
+        padding: 40px;
+        text-align: center;
+      }
+
+      .detail-empty-state svg {
+        margin-bottom: 16px;
+        opacity: 0.3;
+        color: var(--brand);
+      }
+
+      /* Pagination within panes */
+      .pane-pagination {
+        padding: 12px 16px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--surface-2);
+      }
+
+      .btn-icon {
+        background: #fff;
+        border: 1px solid var(--line-strong);
+        width: 34px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: var(--transition);
+        color: var(--text);
+      }
+
+      .btn-icon:hover:not(:disabled) {
+        background: var(--brand-light);
+        color: var(--brand);
+        border-color: var(--brand);
+      }
+
+      .btn-icon:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .page-indicator {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      /* Global Domains Card */
+      .global-domains-card {
+        margin-top: 24px;
+      }
+
+      .table-compact th, .table-compact td {
+        padding: 12px 16px;
+        font-size: 0.88rem;
+      }
+
+      .skeleton {
+        background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+        background-size: 200% 100%;
+        animation: skeleton-loading 1.5s infinite;
+        border-radius: 4px;
+        height: 20px;
+      }
+
+      @keyframes skeleton-loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      .action-buttons {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+      }
+
+      /* Modal Confirmation Styles */
+      .confirm-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        animation: fade-in 0.2s ease-out;
+      }
+
+      .confirm-modal {
+        background: #fff;
+        border-radius: var(--radius-lg);
+        width: 100%;
+        max-width: 400px;
+        padding: 24px;
+        box-shadow: var(--shadow-lg);
+        transform: scale(1);
+        animation: scale-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      .confirm-backdrop.out {
+        animation: fade-out 0.2s ease-in forwards;
+      }
+
+      .confirm-backdrop.out .confirm-modal {
+        animation: scale-out 0.2s ease-in forwards;
+      }
+
+      .confirm-modal-title {
+        margin: 0 0 12px;
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .confirm-modal-body {
+        margin: 0 0 24px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .confirm-modal-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      }
+
+      .btn-cancel {
+        padding: 10px 20px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--line-strong);
+        background: #fff;
+        color: var(--text);
+        font-weight: 600;
+        cursor: pointer;
+        transition: var(--transition);
+      }
+
+      .btn-cancel:hover { background: var(--bg-soft); }
+
+      .btn-confirm {
+        padding: 10px 20px;
+        border-radius: var(--radius-md);
+        border: none;
+        background: var(--danger);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        transition: var(--transition);
+      }
+
+      .btn-confirm:hover { filter: brightness(0.9); }
+      .btn-confirm.success { background: var(--success); }
+
+      @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+      @keyframes scale-in { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+      @keyframes scale-out { from { transform: scale(1); opacity: 1; } to { transform: scale(0.9); opacity: 0; } }
+    </style>
   </head>
   <body class="app-layout bg-grid">
     <%- include('partials/sidebar', { activePage: 'dashboard' }) %>
@@ -13,398 +293,474 @@
 
       <main class="content-wrap">
 
-      <% if (message) { %>
-        <div class="alert alert-success"><%= message %></div>
-      <% } %>
-      <% if (error) { %>
-        <div class="alert alert-error"><%= error %></div>
-      <% } %>
+        <% if (locals.message) { %>
+          <div class="alert alert-success"><%= message %></div>
+        <% } %>
+        <% if (locals.error) { %>
+          <div class="alert alert-error"><%= error %></div>
+        <% } %>
 
-      <section class="cards-grid">
-        <article class="metric-card">
-          <p>Total de Domínios</p>
-          <h2><%= totals.total_count %></h2>
-        </article>
-        <article class="metric-card">
-          <p>Com Ofício</p>
-          <h2><%= totals.with_notice_count %></h2>
-        </article>
-        <article class="metric-card">
-          <p>Sem Ofício</p>
-          <h2><%= totals.without_notice_count %></h2>
-        </article>
-        <article class="metric-card">
-          <p>Total de Ofícios</p>
-          <h2><%= totals.total_notices %></h2>
-        </article>
-      </section>
+        <section class="cards-grid">
+          <article class="metric-card">
+            <p>Total de Domínios</p>
+            <h2><%= totals.total_count %></h2>
+          </article>
+          <article class="metric-card">
+            <p>Com Ofício</p>
+            <h2><%= totals.with_notice_count %></h2>
+          </article>
+          <article class="metric-card">
+            <p>Sem Ofício</p>
+            <h2><%= totals.without_notice_count %></h2>
+          </article>
+          <article class="metric-card">
+            <p>Total de Ofícios</p>
+            <h2><%= totals.total_notices %></h2>
+          </article>
+        </section>
 
-      <section class="table-section">
-        <div class="table-header">
-          <h3>Exclusão de Domínios</h3>
-        </div>
-        <div class="delete-actions-grid">
-          <form method="post" action="/domains/delete/by-domain" class="inline-form delete-form" data-confirm="Tem certeza que deseja excluir este domínio?" data-destructive="false">
-            <label for="deleteDomainName">Excluir por nome de domínio</label>
-            <div class="inline-form-row">
-              <input id="deleteDomainName" name="domainName" type="text" placeholder="Ex.: bet.jogo.com" required />
-              <button type="submit" class="btn-danger">Excluir domínio</button>
+        <!-- Master-Detail Section -->
+        <section class="dashboard-master-detail">
+          <!-- Master: Notices List -->
+          <div class="master-pane">
+            <div class="pane-header">
+              <h3>Ofícios</h3>
+              <span class="badge" id="notices-total-badge">...</span>
             </div>
-          </form>
-
-          <form method="post" action="/domains/delete/by-notice" class="inline-form delete-form" data-confirm="Tem certeza que deseja excluir todos os domínios deste ofício?" data-destructive="false">
-            <label for="deleteNoticeCode">Excluir por número de ofício</label>
-            <div class="inline-form-row">
-              <input id="deleteNoticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" required />
-              <button type="submit" class="btn-danger">Excluir por ofício</button>
+            <div class="pane-search">
+              <input type="text" id="notice-search" placeholder="Buscar por número do ofício..." />
             </div>
-          </form>
-
-          <form method="post" action="/domains/delete/all" class="inline-form delete-form" data-confirm="ATENCAO: isto vai excluir todos os dominios ativos da blocklist. Deseja continuar?" data-destructive="true">
-            <label for="deleteAll">Excluir todos os domínios</label>
-            <div class="inline-form-row">
-              <button type="submit" class="btn-danger">Excluir todos</button>
+            <div class="pane-content" id="notice-list-container">
+              <!-- Loaded via AJAX -->
+              <div class="detail-empty-state">Carregando ofícios...</div>
             </div>
-          </form>
-        </div>
-      </section>
+            <div class="pane-pagination">
+              <button class="btn-icon" id="notice-prev" disabled title="Anterior">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              </button>
+              <span class="page-indicator" id="notice-page-info">Pág. 1</span>
+              <button class="btn-icon" id="notice-next" disabled title="Próxima">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            </div>
+          </div>
 
-      <section class="table-section">
-        <div class="table-header">
-          <h3>Domínios Bloqueados e Data da Execução</h3>
-        </div>
+          <!-- Detail: Notice Domains -->
+          <div class="detail-pane">
+            <div class="pane-header" id="detail-header">
+              <h3>Detalhes do Ofício</h3>
+              <div id="detail-actions" style="display: none; gap: 8px;">
+                <!-- Actions like download or delete will appear here -->
+              </div>
+            </div>
+            <div class="pane-search" id="domain-search-container" style="display: none;">
+              <input type="text" id="domain-search" placeholder="Filtrar domínios deste ofício..." />
+            </div>
+            <div class="pane-content" id="domain-list-container">
+              <div class="detail-empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <p>Selecione um ofício para visualizar os domínios bloqueados.</p>
+              </div>
+            </div>
+            <div class="pane-pagination" id="domain-pagination" style="display: none;">
+              <button class="btn-icon" id="domain-prev" disabled title="Anterior">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              </button>
+              <span class="page-indicator" id="domain-page-info">Pág. 1</span>
+              <button class="btn-icon" id="domain-next" disabled title="Próxima">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            </div>
+          </div>
+        </section>
 
-        <div class="table-controls" data-table-controls="blocked-table">
-          <input id="blocked-domain-filter" type="text" placeholder="Filtrar por domínio" />
-          <input id="blocked-notice-filter" type="text" placeholder="Filtrar por número de ofício" />
-          <select id="blocked-page-size" aria-label="Itens por página na tabela de bloqueados">
-            <option value="5">5</option>
-            <option value="10" selected>10</option>
-            <option value="15">15</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </div>
-
-        <div class="table-container">
-          <table id="blocked-table">
-            <thead>
-              <tr>
-                <th>Ofício</th>
-                <th>Domínio</th>
-                <th>Data da Execução</th>
-                <th>Arquivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (blockedGroups.length === 0) { %>
-                <tr class="empty-row">
-                  <td colspan="4">Nenhum domínio bloqueado cadastrado.</td>
+        <!-- Global Domains Card -->
+        <section class="table-section global-domains-card">
+          <div class="table-header">
+            <h3>Todos os Domínios Ativos</h3>
+            <p class="subtitle-modern">Lista global ordenada pelos mais recentes.</p>
+          </div>
+          <div class="table-controls">
+            <input type="text" id="global-domain-search" placeholder="Buscar domínio globalmente..." />
+          </div>
+          <div class="table-container">
+            <table class="table-compact" id="global-domains-table">
+              <thead>
+                <tr>
+                  <th>Domínio</th>
+                  <th>Ofício Origem</th>
+                  <th>Data de Inclusão</th>
+                  <th>Última Execução</th>
+                  <th style="text-align: center;">Ações</th>
                 </tr>
-              <% } %>
-              <% blockedGroups.forEach(function (group, groupIndex) { %>
-                <% const groupId = `blocked-group-${group.noticeId || 'none'}-${groupIndex}`; %>
-                <tr class="group-row" data-group="<%= groupId %>" data-group-expanded="true">
-                  <td colspan="4">
-                    <button type="button" class="group-toggle-btn" data-group-id="<%= groupId %>" aria-expanded="true">
-                      <span class="group-toggle-icon">▼</span>
-                    </button>
-                    <strong><%= group.noticeCode %></strong>
-                    <span class="group-domain-count">(<%= group.domains.length %> domínio<%= group.domains.length !== 1 ? 's' : '' %>)</span>
-                    <% if (group.fileName && group.noticeId) { %>
-                      <a href="/notices/<%= group.noticeId %>/download" class="btn-link">Baixar Ofício</a>
-                    <% } else { %>
-                      <span class="muted-inline">Sem arquivo anexado</span>
-                    <% } %>
-                  </td>
-                </tr>
-                <% group.domains.forEach(function (row) { %>
-                  <tr class="data-row" data-group="<%= groupId %>" data-domain="<%= row.domainName.toLowerCase() %>" data-notice="<%= (group.noticeCode || '').toLowerCase() %>">
-                    <td><%= group.noticeCode %></td>
-                    <td><%= row.domainName %></td>
-                    <td><%= new Date(row.executedAt).toLocaleString('pt-BR') %></td>
-                    <td>
-                      <% if (group.fileName && group.noticeId) { %>
-                        <a href="/notices/<%= group.noticeId %>/download" class="btn-link">Download</a>
-                      <% } else { %>
-                        -
-                      <% } %>
-                    </td>
-                  </tr>
-                <% }) %>
-              <% }) %>
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody id="global-domains-body">
+                <!-- Loaded via AJAX -->
+              </tbody>
+            </table>
+          </div>
+          <div class="pane-pagination">
+            <button class="btn-icon" id="global-prev" disabled title="Anterior">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <span class="page-indicator" id="global-page-info">Pág. 1</span>
+            <button class="btn-icon" id="global-next" disabled title="Próxima">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+        </section>
 
-        <div class="table-pagination" data-pagination="blocked-table">
-          <button type="button" id="blocked-prev" class="btn-secondary">Anterior</button>
-          <span id="blocked-page-info">Página 1 de 1</span>
-          <button type="button" id="blocked-next" class="btn-secondary">Próxima</button>
-        </div>
-      </section>
-    </main>
+        <% if (hasPermission('notices.delete_full') || hasPermission('domains.delete')) { %>
+        <section class="table-section danger-zone-section" style="border-color: #fee2e2; background: #fff5f5; margin-top: 32px;">
+          <div class="table-header">
+            <h3 style="color: #dc2626;">Zona de Risco</h3>
+            <p class="subtitle-modern" style="margin: 0; color: #ef4444;">Ações irreversíveis que impactam toda a blocklist.</p>
+          </div>
+          <div class="delete-actions-grid" style="grid-template-columns: 1fr; margin-top: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #fff; border: 1px solid #fecaca; border-radius: 12px; box-shadow: var(--shadow-sm);">
+              <div>
+                <strong style="display: block; color: var(--foreground); margin-bottom: 4px; font-size: 1.05rem;">Excluir Todos os Domínios</strong>
+                <span style="font-size: 0.85rem; color: var(--muted);">Remove permanentemente todos os domínios ativos da blocklist.</span>
+              </div>
+              <form method="post" action="/domains/delete/all" class="delete-form" data-confirm="ATENÇÃO: Isto vai excluir TODOS os domínios ativos da blocklist. Deseja continuar?" data-destructive="true" style="margin:0;">
+                <button type="submit" class="btn-danger" style="white-space: nowrap; padding: 10px 24px; font-weight: 600;">Excluir Blocklist Total</button>
+              </form>
+            </div>
+          </div>
+        </section>
+        <% } %>
 
-    <%- include('partials/toast') %>
+      </main>
 
-    <script>
-      (function () {
-        // Setup group toggle functionality
-        const table = document.getElementById('blocked-table');
-        if (!table) return;
+      <%- include('partials/toast') %>
 
-        const tbody = table.querySelector('tbody');
-        const groupToggleBtns = tbody.querySelectorAll('.group-toggle-btn');
-        const groupMap = {}; // Store expanded/collapsed state by group id
+      <script>
+        // --- Dashboard State & Constants ---
+        const hasPermDomainsDelete = <%= hasPermission('domains.delete') %>;
+        const hasPermNoticesDelete = <%= hasPermission('notices.delete_full') %>;
 
-        // Initialize all groups as expanded
-        groupToggleBtns.forEach((btn) => {
-          const groupId = btn.getAttribute('data-group-id');
-          groupMap[groupId] = true; // true = expanded
-        });
+        const state = {
+          notices: { page: 1, limit: 10, total: 0, search: '', activeId: null },
+          domains: { page: 1, limit: 50, total: 0, search: '', noticeId: null },
+          global: { page: 1, limit: 10, total: 0, search: '' }
+        };
 
-        // Setup pagination variables that will be set by setupTable
-        let currentPage = 1;
-        let pageSize = 10;
-        let updateTableFn = null;
-
-        function setupTable(options) {
-          const table = document.getElementById(options.tableId);
-          if (!table) return;
-
-          const tbody = table.querySelector('tbody');
-          if (!tbody) return;
-
-          const domainInput = document.getElementById(options.domainFilterId);
-          const noticeInput = document.getElementById(options.noticeFilterId);
-          const pageSizeSelect = document.getElementById(options.pageSizeId);
-          const prevBtn = document.getElementById(options.prevBtnId);
-          const nextBtn = document.getElementById(options.nextBtnId);
-          const pageInfo = document.getElementById(options.pageInfoId);
-
-          const allDataRows = Array.from(tbody.querySelectorAll('tr.data-row'));
-          const allGroupRows = Array.from(tbody.querySelectorAll('tr.group-row'));
-          const emptyRow = tbody.querySelector('tr.empty-row');
-
-          currentPage = 1;
-          pageSize = Number(pageSizeSelect ? pageSizeSelect.value : 10);
-
-          updateTableFn = function() {
-            const domainTerm = (domainInput ? domainInput.value : '').trim().toLowerCase();
-            const noticeTerm = (noticeInput ? noticeInput.value : '').trim().toLowerCase();
-
-            const matchedRows = allDataRows.filter((row) => {
-              const domainValue = row.getAttribute('data-domain') || '';
-              const noticeValue = row.getAttribute('data-notice') || '';
-
-              const matchesDomain = !domainTerm || domainValue.includes(domainTerm);
-              const matchesNotice = !noticeTerm || noticeValue.includes(noticeTerm);
-              return matchesDomain && matchesNotice;
-            });
-
-            const totalRows = matchedRows.length;
-            const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-
-            if (currentPage > totalPages) {
-              currentPage = totalPages;
-            }
-
-            const start = (currentPage - 1) * pageSize;
-            const end = start + pageSize;
-            const visibleRows = matchedRows.slice(start, end);
-            const visibleGroups = new Set(visibleRows.map((row) => row.getAttribute('data-group')));
-
-            allGroupRows.forEach((row) => {
-              row.style.display = visibleGroups.has(row.getAttribute('data-group')) ? '' : 'none';
-            });
-
-            allDataRows.forEach((row) => {
-              const groupId = row.getAttribute('data-group');
-              const isGroupExpanded = groupMap[groupId];
-              const isRowVisible = visibleRows.includes(row);
-              
-              // Show/hide based on both visibility and expand state
-              row.style.display = (isRowVisible && isGroupExpanded) ? '' : 'none';
-            });
-
-            if (emptyRow) {
-              emptyRow.style.display = totalRows === 0 ? '' : 'none';
-            }
-
-            if (pageInfo) {
-              pageInfo.textContent = `Página ${currentPage} de ${totalPages} (${totalRows} registros)`;
-            }
-
-            if (prevBtn) {
-              prevBtn.disabled = currentPage <= 1;
-            }
-
-            if (nextBtn) {
-              nextBtn.disabled = currentPage >= totalPages;
-            }
-          };
-
-          if (domainInput) {
-            domainInput.addEventListener('input', function () {
-              currentPage = 1;
-              updateTableFn();
-            });
-          }
-
-          if (noticeInput) {
-            noticeInput.addEventListener('input', function () {
-              currentPage = 1;
-              updateTableFn();
-            });
-          }
-
-          if (pageSizeSelect) {
-            pageSizeSelect.addEventListener('change', function () {
-              pageSize = Number(pageSizeSelect.value) || 10;
-              currentPage = 1;
-              updateTableFn();
-            });
-          }
-
-          if (prevBtn) {
-            prevBtn.addEventListener('click', function () {
-              if (currentPage > 1) {
-                currentPage -= 1;
-                updateTableFn();
-              }
-            });
-          }
-
-          if (nextBtn) {
-            nextBtn.addEventListener('click', function () {
-              currentPage += 1;
-              updateTableFn();
-            });
-          }
-
-          updateTableFn();
+        // --- Utility Functions ---
+        function formatDate(dateStr) {
+          if (!dateStr) return '-';
+          return new Date(dateStr).toLocaleString('pt-BR');
         }
 
-        // Setup toggle button listeners AFTER setupTable is defined
-        groupToggleBtns.forEach((btn) => {
-          btn.addEventListener('click', function (e) {
-            e.preventDefault();
-            const groupId = btn.getAttribute('data-group-id');
-            const isExpanded = groupMap[groupId];
-            groupMap[groupId] = !isExpanded;
+        function getStatusColor(status) {
+          switch(status) {
+            case 'informed': case 'Respondido': return '#10b981';
+            case 'blocked': case 'Bloqueado': return '#3b82f6';
+            default: return '#64748b';
+          }
+        }
 
-            // Update button state
-            btn.setAttribute('aria-expanded', String(!isExpanded));
-            const icon = btn.querySelector('.group-toggle-icon');
-            if (icon) {
-              icon.textContent = !isExpanded ? '▼' : '▶';
+        function translateStatus(status) {
+          switch(status) {
+            case 'informed': return 'Respondido';
+            case 'blocked': return 'Bloqueado';
+            case 'registered': return 'Cadastrado';
+            default: return status;
+          }
+        }
+
+        // --- Core Loading Functions ---
+        async function loadNotices() {
+          const container = document.getElementById('notice-list-container');
+          container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--muted);">Buscando ofícios...</div>';
+
+          try {
+            const res = await fetch(`/api/notices?page=${state.notices.page}&limit=${state.notices.limit}&search=${encodeURIComponent(state.notices.search)}`);
+            const data = await res.json();
+            
+            state.notices.total = data.total;
+            document.getElementById('notices-total-badge').textContent = data.total;
+            
+            if (data.notices.length === 0) {
+              container.innerHTML = '<div class="detail-empty-state"><p>Nenhum ofício encontrado.</p></div>';
+            } else {
+              container.innerHTML = data.notices.map(n => `
+                <div class="notice-item ${state.notices.activeId === n.id ? 'active' : ''}" onclick="selectNotice(event, ${n.id}, '${n.notice_code}')">
+                  <div class="notice-item-top">
+                    <span class="notice-item-code">${n.notice_code}</span>
+                    <span class="notice-item-status" style="background: ${getStatusColor(n.status)}20; color: ${getStatusColor(n.status)}">
+                      ${translateStatus(n.status)}
+                    </span>
+                  </div>
+                  <div class="notice-item-meta">
+                    <span>${formatDate(n.created_at)}</span>
+                    <span style="font-weight: 600;">${n.active_domains} domínios</span>
+                  </div>
+                </div>
+              `).join('');
             }
+            updatePagination('notice', state.notices);
+          } catch (err) {
+            container.innerHTML = '<div class="alert alert-error">Erro ao carregar ofícios.</div>';
+          }
+        }
 
-            // Reaplicar a lógica de paginação após toggle
-            if (updateTableFn) {
-              updateTableFn();
+        async function loadDomains() {
+          if (!state.domains.noticeId) return;
+          const container = document.getElementById('domain-list-container');
+          container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--muted);">Carregando domínios...</div>';
+
+          try {
+            const res = await fetch(`/api/notices/${state.domains.noticeId}/domains?page=${state.domains.page}&limit=${state.domains.limit}&search=${encodeURIComponent(state.domains.search)}`);
+            const data = await res.json();
+            state.domains.total = data.total;
+            
+            if (data.domains.length === 0) {
+              container.innerHTML = '<div class="detail-empty-state"><p>Nenhum domínio ativo neste ofício.</p></div>';
+            } else {
+              container.innerHTML = `
+                <table class="table-compact">
+                  <thead>
+                    <tr>
+                      <th>Domínio</th>
+                      <th>Última Execução</th>
+                      <th style="text-align: center;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${data.domains.map(d => `
+                      <tr>
+                        <td><strong>${d.domain_name}</strong></td>
+                        <td>${formatDate(d.executed_at)}</td>
+                        <td style="text-align: center;">
+                          ${hasPermDomainsDelete ? `
+                            <form method="post" action="/domains/delete/by-domain" class="delete-form" data-confirm="Excluir domínio ${d.domain_name}?" style="margin:0;">
+                              <input type="hidden" name="domainName" value="${d.domain_name}" />
+                              <button type="submit" class="btn-danger" title="Excluir" style="padding: 4px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                              </button>
+                            </form>
+                          ` : '-'}
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              `;
             }
-          });
-        });
+            updatePagination('domain', state.domains);
+          } catch (err) {
+            container.innerHTML = '<div class="alert alert-error">Erro ao carregar domínios.</div>';
+          }
+        }
 
-        setupTable({
-          tableId: 'blocked-table',
-          domainFilterId: 'blocked-domain-filter',
-          noticeFilterId: 'blocked-notice-filter',
-          pageSizeId: 'blocked-page-size',
-          prevBtnId: 'blocked-prev',
-          nextBtnId: 'blocked-next',
-          pageInfoId: 'blocked-page-info',
-        });
-      })();
-    </script>
+        async function loadGlobal() {
+          const tbody = document.getElementById('global-domains-body');
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">Buscando dados globais...</td></tr>';
 
-    <script>
-      // Delete form confirmation dialogs with custom modal
-      (function () {
+          try {
+            const res = await fetch(`/api/domains/global?page=${state.global.page}&limit=${state.global.limit}&search=${encodeURIComponent(state.global.search)}`);
+            const data = await res.json();
+            state.global.total = data.total;
+            
+            if (data.domains.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">Nenhum domínio encontrado.</td></tr>';
+            } else {
+              tbody.innerHTML = data.domains.map(d => `
+                <tr>
+                  <td><strong>${d.domain_name}</strong></td>
+                  <td><span class="badge" style="background: var(--bg-soft); color: var(--text);">${d.notice_code || 'Sem ofício'}</span></td>
+                  <td>${formatDate(d.created_at)}</td>
+                  <td>${formatDate(d.executed_at)}</td>
+                  <td style="text-align: center;">
+                    <div class="action-buttons">
+                      ${hasPermDomainsDelete ? `
+                        <form method="post" action="/domains/delete/by-domain" class="delete-form" data-confirm="Excluir domínio ${d.domain_name}?" style="margin:0;">
+                          <input type="hidden" name="domainName" value="${d.domain_name}" />
+                          <button type="submit" class="btn-danger" title="Excluir" style="padding: 4px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                          </button>
+                        </form>
+                      ` : ''}
+                    </div>
+                  </td>
+                </tr>
+              `).join('');
+            }
+            updatePagination('global', state.global);
+          } catch (err) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--danger);">Erro ao carregar dados.</td></tr>';
+          }
+        }
+
+        // --- Interaction Logic ---
+        function selectNotice(event, id, code) {
+          state.notices.activeId = id;
+          state.domains.noticeId = id;
+          state.domains.page = 1;
+          
+          document.querySelectorAll('.notice-item').forEach(el => el.classList.remove('active'));
+          // Use the passed event to get the current target reliably
+          if (event && event.currentTarget) {
+            event.currentTarget.classList.add('active');
+          } else {
+            // Fallback: try to find by ID if event is missing
+            const item = document.querySelector(`.notice-item[onclick*="selectNotice"][onclick*="${id}"]`);
+            if (item) item.classList.add('active');
+          }
+
+          document.querySelector('#detail-header h3').textContent = `Ofício: ${code}`;
+          document.getElementById('domain-search-container').style.display = 'block';
+          document.getElementById('domain-pagination').style.display = 'flex';
+          
+          const actionsDiv = document.getElementById('detail-actions');
+          actionsDiv.style.display = 'flex';
+          actionsDiv.innerHTML = `
+            <a href="/notices/${id}/download" class="btn-link" style="font-size: 0.85rem;">Baixar PDF</a>
+            ${hasPermNoticesDelete ? `
+              <form method="post" action="/domains/delete/by-notice" class="delete-form" data-confirm="Deseja excluir todos os domínios do ofício ${code}?" style="margin:0;">
+                <input type="hidden" name="noticeCode" value="${code}" />
+                <button type="submit" class="btn-danger" style="padding: 4px 10px; font-size: 0.75rem;">Excluir Tudo</button>
+              </form>
+            ` : ''}
+          `;
+          loadDomains();
+        }
+
+        function updatePagination(prefix, slice) {
+          const totalPages = Math.max(1, Math.ceil(slice.total / slice.limit));
+          const pageInfo = document.getElementById(`${prefix}-page-info`);
+          if (pageInfo) pageInfo.textContent = `Pág. ${slice.page} de ${totalPages}`;
+          
+          const prevBtn = document.getElementById(`${prefix}-prev`);
+          const nextBtn = document.getElementById(`${prefix}-next`);
+          if (prevBtn) prevBtn.disabled = slice.page <= 1;
+          if (nextBtn) nextBtn.disabled = slice.page >= totalPages;
+        }
+
+        // --- Confirmation & AJAX Deletion ---
         let confirmModal = null;
         let confirmForm = null;
 
-        function createConfirmModal() {
-          const backdrop = document.createElement('div');
-          backdrop.className = 'confirm-backdrop';
-          backdrop.id = 'confirm-backdrop';
-
-          backdrop.addEventListener('click', function (event) {
-            if (event.target === backdrop) {
-              closeModal();
-            }
-          });
-
-          backdrop.innerHTML = `
-            <div class="confirm-modal" id="confirm-modal">
-              <h3 class="confirm-modal-title" id="confirm-title">Confirmação</h3>
-              <p class="confirm-modal-body" id="confirm-message">Tem certeza?</p>
-              <div class="confirm-modal-actions">
-                <button type="button" class="btn-cancel" id="confirm-cancel">Cancelar</button>
-                <button type="button" class="btn-confirm" id="confirm-ok">Confirmar</button>
+        function showConfirmModal(message, form, isDestructive) {
+          if (!confirmModal) {
+            confirmModal = document.createElement('div');
+            confirmModal.className = 'confirm-backdrop';
+            confirmModal.innerHTML = `
+              <div class="confirm-modal">
+                <h3 class="confirm-modal-title">Confirmação</h3>
+                <p class="confirm-modal-body" id="confirm-message-text"></p>
+                <div class="confirm-modal-actions">
+                  <button type="button" class="btn-cancel" id="btn-modal-cancel">Cancelar</button>
+                  <button type="button" class="btn-confirm" id="btn-modal-ok">Confirmar</button>
+                </div>
               </div>
-            </div>
-          `;
-
-          document.body.appendChild(backdrop);
-          confirmModal = backdrop;
-
-          document.getElementById('confirm-cancel').addEventListener('click', closeModal);
-          document.getElementById('confirm-ok').addEventListener('click', function () {
+            `;
+            document.body.appendChild(confirmModal);
+            confirmModal.addEventListener('click', (e) => {
+              if (e.target === confirmModal || e.target.id === 'btn-modal-cancel') closeModal();
+            });
+          }
+          
+          confirmForm = form;
+          document.getElementById('confirm-message-text').textContent = message;
+          const okBtn = document.getElementById('btn-modal-ok');
+          if (isDestructive) okBtn.classList.remove('success'); else okBtn.classList.add('success');
+          
+          okBtn.onclick = () => {
+            const currentForm = confirmForm;
             closeModal();
-            if (confirmForm) {
-              confirmForm.submit();
+            if (currentForm) {
+              if (currentForm.classList.contains('delete-form')) {
+                handleDeletion(currentForm);
+              } else {
+                currentForm.submit();
+              }
             }
-          });
+          };
+
+          confirmModal.classList.remove('out');
+          confirmModal.style.display = 'flex';
         }
 
         function closeModal() {
           if (confirmModal) {
             confirmModal.classList.add('out');
-            setTimeout(function () {
-              if (confirmModal) {
-                document.body.removeChild(confirmModal);
-                confirmModal = null;
-              }
-              confirmForm = null;
-            }, 160);
+            setTimeout(() => { confirmModal.style.display = 'none'; confirmForm = null; }, 160);
           }
         }
 
-        function showConfirmModal(message, form, isDestructive) {
-          if (!confirmModal) {
-            createConfirmModal();
-          }
-
-          confirmForm = form;
-          document.getElementById('confirm-message').textContent = message;
+        async function handleDeletion(form) {
+          if (!form) return;
+          const formData = new FormData(form);
+          const data = {};
+          formData.forEach((v, k) => data[k] = v);
           
-          const btnConfirm = document.getElementById('confirm-ok');
-          if (isDestructive) {
-            btnConfirm.classList.remove('success');
-          } else {
-            btnConfirm.classList.add('success');
+          const submitBtn = form.querySelector('button[type="submit"]');
+          const originalContent = submitBtn ? submitBtn.innerHTML : null;
+          if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = 'Aguarde...'; }
+
+          try {
+            const res = await fetch(form.action, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify(data)
+            });
+
+            const resData = await res.json();
+
+            if (res.ok) {
+              loadNotices();
+              if (state.domains.noticeId) loadDomains();
+              loadGlobal();
+              const msg = resData.message || 'Operação concluída com sucesso.';
+              if (window.showToast) window.showToast(msg, 'success');
+              else alert(msg);
+            } else {
+              const err = resData.error || 'Erro desconhecido no servidor.';
+              if (window.showToast) window.showToast(err, 'error');
+              else alert('Erro: ' + err);
+            }
+          } catch (err) {
+            console.error('Falha crítica:', err);
+            if (window.showToast) window.showToast('Erro de conexão ou falha no sistema.', 'error');
+            else alert('Erro crítico de conexão.');
+          } finally {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = originalContent; }
           }
         }
 
-        document.addEventListener('keydown', function (event) {
-          if (event.key === 'Escape') {
-            closeModal();
+        // --- Event Listeners ---
+        document.addEventListener('submit', (e) => {
+          const form = e.target.closest('form[data-confirm]');
+          if (form) {
+            e.preventDefault();
+            showConfirmModal(form.getAttribute('data-confirm'), form, form.getAttribute('data-destructive') === 'true');
           }
         });
 
-        const confirmableForms = document.querySelectorAll('form[data-confirm]');
-        confirmableForms.forEach((form) => {
-          form.addEventListener('submit', function (event) {
-            event.preventDefault();
-            const confirmMessage = form.getAttribute('data-confirm');
-            const isDestructive = form.getAttribute('data-destructive') === 'true';
-            showConfirmModal(confirmMessage, form, isDestructive);
-          });
+        document.getElementById('notice-search').addEventListener('input', (e) => {
+          state.notices.search = e.target.value; state.notices.page = 1; loadNotices();
         });
-      })();
-    </script>
-    </div> <!-- .main-content -->
+        document.getElementById('domain-search').addEventListener('input', (e) => {
+          state.domains.search = e.target.value; state.domains.page = 1; loadDomains();
+        });
+        document.getElementById('global-domain-search').addEventListener('input', (e) => {
+          state.global.search = e.target.value; state.global.page = 1; loadGlobal();
+        });
+
+        document.getElementById('notice-prev').onclick = () => { state.notices.page--; loadNotices(); };
+        document.getElementById('notice-next').onclick = () => { state.notices.page++; loadNotices(); };
+        document.getElementById('domain-prev').onclick = () => { state.domains.page--; loadDomains(); };
+        document.getElementById('domain-next').onclick = () => { state.domains.page++; loadDomains(); };
+        document.getElementById('global-prev').onclick = () => { state.global.page--; loadGlobal(); };
+        document.getElementById('global-next').onclick = () => { state.global.page++; loadGlobal(); };
+
+        window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+        // --- Initial Load ---
+        loadNotices();
+        loadGlobal();
+      </script>
+    </div>
   </body>
 </html>
