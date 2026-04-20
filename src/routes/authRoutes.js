@@ -468,16 +468,13 @@ router.post('/users/:id/delete', ensureAdmin, async (req, res) => {
     }
 
     await pool.query(
-      `UPDATE users
-       SET is_active = false,
-           must_change_password = false
-       WHERE id = $1`,
+      'DELETE FROM users WHERE id = $1',
       [userId]
     );
 
     await logAudit(pool, {
       req,
-      action: 'users.deactivate',
+      action: 'users.delete',
       details: {
         targetUserId: userId,
         targetUsername: targetUser.username,

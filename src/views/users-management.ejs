@@ -152,9 +152,7 @@
                       <div class="user-actions-cell">
                         <a href="/users/<%= row.id %>/edit" class="btn-secondary user-action-btn">Editar</a>
                         <% if (row.id !== user.id) { %>
-                          <form method="post" action="/users/<%= row.id %>/delete" class="user-inline-form" onsubmit="return confirm('Deseja realmente excluir (inativar) este usuário?');">
-                            <button type="submit" class="btn-danger user-action-btn">Excluir</button>
-                          </form>
+                          <button type="button" class="btn-danger user-action-btn btn-trigger-delete" data-id="<%= row.id %>" data-name="<%= row.full_name %>">Excluir</button>
                         <% } else { %>
                           <span class="helper-text">Você</span>
                         <% } %>
@@ -175,6 +173,24 @@
       </section>
       </div>
     </main>
+
+    <!-- Modal Confirmar Exclusão -->
+    <div id="modal-confirm-delete" class="modal" style="display:none;position:fixed;z-index:4000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:32px 24px;border-radius:12px;width:90%;max-width:400px;box-shadow:var(--shadow-lg);position:relative;animation:modalIn 0.3s ease;text-align:center;">
+        <div style="color:var(--danger);margin-bottom:20px;display:flex;justify-content:center;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        </div>
+        <h2 style="margin-top:0;margin-bottom:12px;font-size:1.3rem;font-weight:700;">Confirmar Exclusão</h2>
+        <p style="color:var(--muted);margin-bottom:24px;line-height:1.5;">Deseja realmente excluir o usuário <strong id="delete-user-name"></strong>?</p>
+        
+        <div style="display:flex;gap:12px;justify-content:center;border-top:1px solid var(--line);padding-top:20px;">
+          <button type="button" id="cancel-delete" class="btn-secondary" style="padding:10px 24px;cursor:pointer;">Cancelar</button>
+          <form id="form-confirm-delete" method="post" action="">
+            <button type="submit" class="btn-danger" style="padding:10px 24px;cursor:pointer;">Confirmar Exclusão</button>
+          </form>
+        </div>
+      </div>
+    </div>
 
     <script>
       (function () {
@@ -275,6 +291,27 @@
         }
 
         updateUsersTable();
+
+        // Lógica do Modal de Exclusão
+        const modalDelete = document.getElementById('modal-confirm-delete');
+        const deleteUserNameSpan = document.getElementById('delete-user-name');
+        const formConfirmDelete = document.getElementById('form-confirm-delete');
+        const cancelDeleteBtn = document.getElementById('cancel-delete');
+
+        document.querySelectorAll('.btn-trigger-delete').forEach(btn => {
+          btn.onclick = function() {
+            const id = this.getAttribute('data-id');
+            const name = this.getAttribute('data-name');
+            deleteUserNameSpan.textContent = name;
+            formConfirmDelete.action = `/users/${id}/delete`;
+            modalDelete.style.display = 'flex';
+          };
+        });
+
+        const hideDeleteModal = () => { modalDelete.style.display = 'none'; };
+        if (cancelDeleteBtn) cancelDeleteBtn.onclick = hideDeleteModal;
+        window.addEventListener('click', (e) => { if (e.target === modalDelete) hideDeleteModal(); });
+
       })();
     </script>
 
