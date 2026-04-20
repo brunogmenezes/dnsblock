@@ -1524,30 +1524,47 @@ router.get('/notices', ensurePermission('notices'), async (req, res) => {
     where += ' AND (n.notice_code ILIKE $1)';
     params.push(`%${search}%`);
   }
-  const dataResult = await pool.query(
-    `SELECT n.id, n.notice_code, n.original_file_name, n.created_at, n.uploaded_by, n.id as notice_id,
-            n.status, n.informed_at, n.informed_by,
-            (SELECT username FROM users WHERE id = n.uploaded_by) as username,
-            (SELECT username FROM users WHERE id = n.informed_by) as informer_username,
-            COALESCE((SELECT COUNT(*) FROM domains d WHERE d.notice_id = n.id), 0) as total_domains,
-            COALESCE(
-              (SELECT json_agg(json_build_object('id', nf.id, 'original_file_name', nf.original_file_name))
-               FROM notice_files nf WHERE nf.notice_id = n.id),
-              '[]'::json
-            ) as files
-     FROM notices n
-     WHERE ${where}
-     ORDER BY n.created_at DESC`,
-    params
-  );
+  const [dataResult, statsResult] = await Promise.all([
+    pool.query(
+      `SELECT n.id, n.notice_code, n.original_file_name, n.created_at, n.uploaded_by, n.id as notice_id,
+              n.status, n.informed_at, n.informed_by,
+              (SELECT username FROM users WHERE id = n.uploaded_by) as username,
+              (SELECT username FROM users WHERE id = n.informed_by) as informer_username,
+              COALESCE((SELECT COUNT(*) FROM domains d WHERE d.notice_id = n.id), 0) as total_domains,
+              COALESCE(
+                (SELECT json_agg(json_build_object('id', nf.id, 'original_file_name', nf.original_file_name))
+                 FROM notice_files nf WHERE nf.notice_id = n.id),
+                '[]'::json
+              ) as files
+       FROM notices n
+       WHERE ${where}
+       ORDER BY n.created_at DESC`,
+      params
+    ),
+    pool.query(
+      `SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'blocked') as blocked,
+        COUNT(*) FILTER (WHERE status = 'informed') as informed
+       FROM notices`
+    )
+  ]);
+
+  const stats = statsResult.rows[0];
   const flash = req.session.flash || null;
   if (req.session.flash) delete req.session.flash;
+  
   return res.render('notices-list', {
     title: 'Ofícios cadastrados',
     user: req.session.user,
     notices: dataResult.rows,
     search,
     flash,
+    totals: {
+      total: Number(stats.total || 0),
+      blocked: Number(stats.blocked || 0),
+      informed: Number(stats.informed || 0)
+    }
   });
 });
 

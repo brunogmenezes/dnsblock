@@ -23,6 +23,21 @@
           }, 3500);
         </script>
       <% } %>
+
+      <section class="cards-grid" style="margin-bottom: 24px;">
+        <article class="metric-card">
+          <p>Total de Ofícios</p>
+          <h2><%= totals.total %></h2>
+        </article>
+        <article class="metric-card">
+          <p>Ofícios Bloqueados</p>
+          <h2 style="color: #f59e0b;"><%= totals.blocked %></h2>
+        </article>
+        <article class="metric-card">
+          <p>Ofícios Respondidos</p>
+          <h2 style="color: var(--success);"><%= totals.informed %></h2>
+        </article>
+      </section>
       <section class="table-section">
         <div class="table-header">
           <h3>Ofícios Cadastrados</h3>
