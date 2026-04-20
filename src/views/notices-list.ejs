@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/public/css/styles.css" />
+  </head>
+  <body class="app-layout bg-grid">
+    <%- include('partials/sidebar', { activePage: 'notices' }) %>
+    <div class="main-content">
+      <%- include('partials/topbar', { pageTitle: 'Ofícios Cadastrados', pageSubtitle: 'Gerenciamento de Ofícios e Anexos' }) %>
+
+      <main class="content-wrap">
+      <% if (typeof flash !== 'undefined' && flash && flash.text) { %>
+        <div class="flash-banner <%= flash.type %>" style="margin-bottom:18px;padding:14px 22px;border-radius:7px;font-size:1.08em;font-weight:500;box-shadow:0 2px 8px #0001; background:<%= flash.type === 'success' ? '#e6ffed' : '#fff4e6' %>;color:<%= flash.type === 'success' ? '#155724' : '#a15c00' %>;border:1.5px solid <%= flash.type === 'success' ? '#b7f5c2' : '#ffd699' %>;text-align:center;transition:all .3s;">
+          <%= flash.text %>
+        </div>
+        <script>
+          setTimeout(() => {
+            const banner = document.querySelector('.flash-banner');
+            if (banner) banner.style.display = 'none';
+          }, 3500);
+        </script>
+      <% } %>
+      <section class="table-section">
+        <div class="table-header">
+          <h3>Ofícios Cadastrados</h3>
+          <div style="display: flex; gap: 20px; align-items: center;">
+            <div class="status-legend" style="display: flex; gap: 12px; font-size: 0.85rem; background: var(--bg-soft); padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line);">
+              <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--muted);"></span> Cadastrado</div>
+              <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f59e0b;"></span> Bloqueado</div>
+              <div style="display: flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span> Respondido</div>
+            </div>
+            <button id="btn-add-notice" class="btn-primary">Cadastrar novo ofício</button>
+          </div>
+        </div>
+
+        <!-- Modal de cadastro de ofício -->
+        <div id="modal-add-notice" class="modal" style="display:none;position:fixed;z-index:1000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+          <div class="modal-content" style="background:#fff;padding:32px 24px 24px 24px;border-radius:8px;min-width:320px;max-width:95vw;box-shadow:0 2px 16px #0002;position:relative;">
+            <button id="close-modal-add-notice" style="position:absolute;top:8px;right:12px;background:none;border:none;font-size:1.5rem;cursor:pointer;">&times;</button>
+            <h2 style="margin-top:0;margin-bottom:18px;">Cadastrar novo ofício</h2>
+            <form id="form-add-notice" method="post" action="/notices" enctype="multipart/form-data" class="form-stack" style="gap:10px;">
+              <label for="noticeCode">Número do Ofício</label>
+              <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" required />
+              <label for="noticeName">Nome do Ofício</label>
+              <input id="noticeName" name="noticeName" type="text" placeholder="Nome do ofício" required />
+              
+              <div style="display:flex; gap:12px;">
+                <div style="flex:1;">
+                  <label for="blockStartDate">Início do Bloqueio (opcional)</label>
+                  <input id="blockStartDate" name="blockStartDate" type="date" />
+                </div>
+                <div style="flex:1;">
+                  <label for="blockEndDate">Término do Bloqueio (opcional)</label>
+                  <input id="blockEndDate" name="blockEndDate" type="date" />
+                </div>
+              </div>
+
+              <label for="noticeFile">Arquivos do Ofício (opcional)</label>
+              <input id="noticeFile" name="noticeFile" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" multiple />
+              <div style="display:flex;gap:12px;margin-top:10px;">
+                <button type="submit" class="btn-primary">Salvar Ofício</button>
+                <button type="button" id="cancel-modal-add-notice" class="btn-secondary">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <form method="get" action="/notices" class="table-controls" style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+          <input type="text" name="search" id="search-input" value="<%= search || '' %>" placeholder="Buscar por número do ofício..." style="flex:2;min-width:220px;max-width:400px;padding:8px 12px;font-size:1rem;" autocomplete="off" />
+          <button type="submit" class="btn-secondary">Buscar</button>
+        </form>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Número do Ofício</th>
+                <th>Nome do Ofício</th>
+                <th>Data de Cadastro</th>
+                <th>Cadastrado por</th>
+                <th>Total de Domínios</th>
+                <th>Status</th>
+                <th>Ações</th>
+                <!-- coluna Download removida -->
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!notices || notices.length === 0) { %>
+                <tr>
+                  <td colspan="5">Nenhum ofício cadastrado.</td>
+                </tr>
+              <% } else { %>
+                <% notices.forEach(function (notice) { %>
+                  <tr class="status-<%= notice.status || 'registered' %>">
+                    <td><%= notice.notice_code %></td>
+                    <td>
+                      <span title="<%= notice.original_file_name %>">
+                        <%= notice.notice_code %>
+                      </span>
+                      <% if (notice.files && notice.files.length > 0) { %>
+                        <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">
+                          <% notice.files.forEach(function(file, idx) { %>
+                            <a href="/notices/<%= notice.id %>/download/<%= file.id %>" class="btn-secondary" style="font-size:0.95em;padding:2px 8px;" title="<%= file.original_file_name %>">
+                              <%= file.original_file_name.length > 20 ? file.original_file_name.slice(0, 17) + '...' : file.original_file_name %>
+                            </a>
+                          <% }) %>
+                        </div>
+                      <% } else { %>
+                        <div style="margin-top:4px;opacity:0.6;font-size:0.95em;">Nenhum anexo</div>
+                      <% } %>
+                    </td>
+                    <td><%= new Date(notice.created_at).toLocaleString('pt-BR') %></td>
+                    <td><%= notice.username || '-' %></td>
+                    <td style="text-align:center;"><%= notice.total_domains %></td>
+                    <td style="text-align:center;">
+                      <% if (notice.status === 'informed') { %>
+                        <span class="badge badge-success" title="Respondido em: <%= notice.informed_at ? new Date(notice.informed_at).toLocaleString('pt-BR') : '-' %>">Respondido</span>
+                      <% } else if (notice.status === 'blocked') { %>
+                        <span class="badge badge-warning">Bloqueado</span>
+                      <% } else { %>
+                        <span class="badge badge-secondary">Cadastrado</span>
+                      <% } %>
+                    </td>
+                    <td style="text-align:center;">
+                      <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;align-items:center;">
+                        <% if (notice.status !== 'informed') { %>
+                          <div style="display:flex;gap:6px;">
+                            <button class="btn-primary btn-add-domains" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;">Adicionar Domínios</button>
+                            <button class="btn-secondary btn-add-files" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;">Anexar Arquivos</button>
+                          </div>
+                          <% if (notice.total_domains > 0) { %>
+                            <button class="btn-info btn-inform-notice" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;background:var(--info);color:#fff;border-color:var(--info);width:100%;">Marcar Respondido</button>
+                          <% } else { %>
+                            <span style="color: var(--muted); font-size: 0.8rem; font-style: italic;">Adicione domínios para responder</span>
+                          <% } %>
+                        <% } else { %>
+                           <span style="color: var(--success); font-size: 0.9rem; font-weight: 700;">Ofício finalizado</span>
+                           <div style="font-size: 0.75rem; color: var(--muted); line-height: 1.2;">
+                             Por: <strong><%= notice.informer_username || 'Sistema' %></strong><br>
+                             Em: <%= notice.informed_at ? new Date(notice.informed_at).toLocaleString('pt-BR') : '-' %>
+                           </div>
+                        <% } %>
+                      </div>
+                    </td>
+                  </tr>
+                <% }) %>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Paginação removida: todos os itens são exibidos -->
+      </section>
+    </main>
+
+    <!-- Modal para adicionar domínios ao ofício -->
+    <div id="modal-add-domains" class="modal" style="display:none;position:fixed;z-index:2000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:32px 28px;border-radius:16px;width:95%;max-width:900px;box-shadow:var(--shadow-lg);position:relative;animation:modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <button id="close-modal-add-domains" style="position:absolute;top:16px;right:20px;background:none;border:none;font-size:1.8rem;cursor:pointer;color:var(--muted);">&times;</button>
+        
+        <div style="margin-bottom: 24px;">
+          <h2 style="margin:0;font-size:1.5rem;font-weight:800;letter-spacing:-0.02em;">Adicionar Domínios ao Ofício</h2>
+          <p style="margin:4px 0 0;color:var(--muted);font-size:0.95rem;">Ofício: <span id="modal-notice-code" style="font-weight:700;color:var(--text);"></span></p>
+        </div>
+
+        <form id="form-add-domains" method="post" action="/notices/add-domains">
+          <input type="hidden" name="noticeId" id="input-notice-id" />
+          
+          <div style="display: grid; grid-template-columns: 1fr 280px; gap: 32px;">
+            <div class="form-stack">
+              <label for="input-domains" style="font-weight:600;display:block;margin-bottom:8px;">Domínios para bloquear <span style="font-weight:400;color:var(--muted);">(um por linha)</span></label>
+              <textarea id="input-domains" name="domains" rows="12" style="width:100%;resize:vertical;padding:16px;font-size:1rem;border-radius:var(--radius-md);border:1px solid var(--line);outline:none;font-family:inherit;line-height:1.5;transition:var(--transition);" placeholder="exemplo.com&#10;site.org&#10;..."></textarea>
+            </div>
+
+            <div style="background:var(--bg-soft);padding:24px;border-radius:var(--radius-md);display:flex;flex-direction:column;gap:20px;height:fit-content;">
+              <h4 style="margin:0;font-size:0.9rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);">Resumo da Validação</h4>
+              
+              <div style="display:flex;flex-direction:column;gap:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.9rem;font-weight:600;color:var(--success);">Válidos</span>
+                  <span id="stat-valid" style="font-size:1.1rem;font-weight:800;color:var(--success);">0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.9rem;font-weight:600;color:var(--danger);">Inválidos</span>
+                  <span id="stat-invalid" style="font-size:1.1rem;font-weight:800;color:var(--danger);">0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.9rem;font-weight:600;color:var(--info);">Já cadastrados</span>
+                  <span id="stat-exists" style="font-size:1.1rem;font-weight:800;color:var(--info);">0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line-strong);padding-top:12px;margin-top:4px;">
+                  <span style="font-size:0.9rem;font-weight:700;">Total</span>
+                  <span id="stat-total" style="font-size:1.1rem;font-weight:800;">0</span>
+                </div>
+              </div>
+
+              <p style="margin:0;font-size:0.8rem;color:var(--muted);line-height:1.4;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;margin-right:4px;vertical-align:middle;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                A validação é feita em tempo real conforme você digita.
+              </p>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:12px;margin-top:32px;justify-content:flex-end;border-top:1px solid var(--line);padding-top:24px;">
+            <button type="button" id="cancel-modal-add-domains" class="btn-secondary" style="padding:10px 24px;">Cancelar</button>
+            <button type="submit" class="btn-primary" style="padding:10px 32px;">Bloquear Domínios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal de Resultado de Inserção -->
+    <div id="modal-result-domains" class="modal" style="display:none;position:fixed;z-index:3000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:32px 28px;border-radius:12px;width:95%;max-width:400px;box-shadow:var(--shadow-lg);position:relative;text-align:center;animation:modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <h2 style="margin-top:0;margin-bottom:16px;font-size:1.4rem;">Resultado da Inserção</h2>
+        <p style="margin-bottom:8px;"><strong>Ofício:</strong> <span id="result-notice-code"></span></p>
+        <div style="display:flex;flex-direction:column;gap:8px;text-align:left;background:var(--bg-soft);padding:16px;border-radius:8px;margin-bottom:24px;">
+           <div style="display:flex;justify-content:space-between;"><span style="color:var(--success);font-weight:600;">Válidos Inseridos:</span> <span id="result-valid" style="font-weight:700;"></span></div>
+           <div style="display:flex;justify-content:space-between;"><span style="color:var(--danger);font-weight:600;">Inválidos Ignorados:</span> <span id="result-invalid" style="font-weight:700;"></span></div>
+           <div style="display:flex;justify-content:space-between;"><span style="color:var(--info);font-weight:600;">Já Cadastrados:</span> <span id="result-exists" style="font-weight:700;"></span></div>
+        </div>
+        <button id="btn-ok-result" class="btn-primary" style="width:100%;padding:10px;">OK</button>
+      </div>
+    </div>
+
+    <!-- Modal para marcar como informado/respondido -->
+    <div id="modal-inform-notice" class="modal" style="display:none;position:fixed;z-index:2000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:36px 28px 28px 28px;border-radius:12px;min-width:340px;max-width:98vw;box-shadow:0 4px 24px #0003;position:relative;">
+        <button id="close-modal-inform-notice" style="position:absolute;top:10px;right:16px;background:none;border:none;font-size:1.7rem;cursor:pointer;">&times;</button>
+        <h2 style="margin-top:0;margin-bottom:20px;font-size:1.25rem;">Marcar Ofício <span id="modal-inform-notice-code" style="font-weight:600;"></span> como Respondido</h2>
+        <form id="form-inform-notice" class="form-stack" style="gap:14px;">
+          <input type="hidden" id="input-inform-notice-id" />
+          <label for="input-informed-at" style="font-weight:500;margin-bottom:2px;">Data e Hora da Resposta:</label>
+          <input id="input-informed-at" type="datetime-local" required style="font-size:1.07em;padding:8px;" />
+          <div style="display:flex;gap:14px;margin-top:12px;justify-content:flex-end;">
+            <button type="submit" class="btn-primary">Confirmar Resposta</button>
+            <button type="button" id="cancel-modal-inform-notice" class="btn-secondary">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal para anexar arquivos ao ofício -->
+    <div id="modal-add-files" class="modal" style="display:none;position:fixed;z-index:2000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:36px 28px 28px 28px;border-radius:12px;min-width:340px;max-width:98vw;box-shadow:0 4px 24px #0003;position:relative;">
+        <button id="close-modal-add-files" style="position:absolute;top:10px;right:16px;background:none;border:none;font-size:1.7rem;cursor:pointer;">&times;</button>
+        <h2 style="margin-top:0;margin-bottom:20px;font-size:1.25rem;">Anexar Arquivos ao Ofício <span id="modal-file-notice-code" style="font-weight:600;"></span></h2>
+        <form id="form-add-files" method="post" action="/notices/add-files" enctype="multipart/form-data" class="form-stack" style="gap:14px;">
+          <input type="hidden" name="noticeId" id="input-file-notice-id" />
+          <label for="noticeFile" style="font-weight:500;margin-bottom:2px;">Selecione os arquivos:</label>
+          <input id="noticeFile" name="noticeFile" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.csv" multiple required style="font-size:1.07em;padding:8px 0;" />
+          <div style="display:flex;gap:14px;margin-top:12px;justify-content:flex-end;">
+            <button type="submit" class="btn-primary">Salvar Arquivos</button>
+            <button type="button" id="cancel-modal-add-files" class="btn-secondary">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+            const modalAddDomains = document.getElementById('modal-add-domains');
+            const closeModalAddDomains = document.getElementById('close-modal-add-domains');
+            const cancelModalAddDomains = document.getElementById('cancel-modal-add-domains');
+            const formAddDomains = document.getElementById('form-add-domains');
+            const inputNoticeId = document.getElementById('input-notice-id');
+            const inputDomains = document.getElementById('input-domains');
+            const modalNoticeCode = document.getElementById('modal-notice-code');
+
+            const statValid = document.getElementById('stat-valid');
+            const statInvalid = document.getElementById('stat-invalid');
+            const statExists = document.getElementById('stat-exists');
+            const statTotal = document.getElementById('stat-total');
+            let validationTimeout;
+
+            const DOMAIN_REGEX = /^(?=.{1,253}$)(?!.*\.\.)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/;
+
+            function normalizeDomainLocal(domain) {
+              if (!domain || typeof domain !== 'string') return '';
+              return domain.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').trim();
+            }
+
+            async function validateDomains() {
+              const text = inputDomains.value;
+              const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+              
+              let validCount = 0;
+              let invalidCount = 0;
+              let totalCount = lines.length;
+              const validList = [];
+              
+              lines.forEach(line => {
+                const norm = normalizeDomainLocal(line);
+                if (norm && DOMAIN_REGEX.test(norm)) {
+                  validCount++;
+                  validList.push(norm);
+                } else {
+                  invalidCount++;
+                }
+              });
+
+              statValid.textContent = validCount;
+              statInvalid.textContent = invalidCount;
+              statTotal.textContent = totalCount;
+
+              if (validList.length > 0) {
+                try {
+                  const res = await fetch('/domains/check-exists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ domains: validList })
+                  });
+                  const data = await res.json();
+                  statExists.textContent = data.registered ? data.registered.length : 0;
+                } catch (e) {
+                  statExists.textContent = '0';
+                }
+              } else {
+                statExists.textContent = '0';
+              }
+            }
+
+            inputDomains.oninput = function() {
+              clearTimeout(validationTimeout);
+              validationTimeout = setTimeout(validateDomains, 400);
+            };
+
+            const modalResultDomains = document.getElementById('modal-result-domains');
+            const resultNoticeCode = document.getElementById('result-notice-code');
+            const resultValid = document.getElementById('result-valid');
+            const resultInvalid = document.getElementById('result-invalid');
+            const resultExists = document.getElementById('result-exists');
+            const btnOkResult = document.getElementById('btn-ok-result');
+
+            formAddDomains.onsubmit = async function(e) {
+              e.preventDefault();
+              
+              const noticeId = inputNoticeId.value;
+              const domains = inputDomains.value;
+              const noticeCode = modalNoticeCode.textContent;
+
+              const submitBtn = formAddDomains.querySelector('button[type="submit"]');
+              const originalBtnText = submitBtn.textContent;
+              submitBtn.textContent = 'Aguarde...';
+              submitBtn.disabled = true;
+
+              try {
+                const response = await fetch('/notices/add-domains', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ noticeId, domains })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                  alert(data.error || 'Erro ao inserir domínios.');
+                  submitBtn.textContent = originalBtnText;
+                  submitBtn.disabled = false;
+                  return;
+                }
+
+                // Esconde modal de cadastro
+                modalAddDomains.style.display = 'none';
+                formAddDomains.reset();
+
+                // Mostra modal de resultado
+                resultNoticeCode.textContent = noticeCode;
+                resultValid.textContent = data.validCount || 0;
+                resultInvalid.textContent = data.invalidCount || 0;
+                resultExists.textContent = data.registeredCount || 0;
+                modalResultDomains.style.display = 'flex';
+
+              } catch (error) {
+                alert('Erro na comunicação com o servidor.');
+              } finally {
+                submitBtn.textContent = originalBtnText;
+                submitBtn.disabled = false;
+              }
+            };
+
+            btnOkResult.onclick = function() {
+              modalResultDomains.style.display = 'none';
+              window.location.reload();
+            };
+
+            document.querySelectorAll('.btn-add-domains').forEach(btn => {
+              btn.onclick = function() {
+                inputNoticeId.value = btn.getAttribute('data-notice-id');
+                modalNoticeCode.textContent = btn.getAttribute('data-notice-code');
+                inputDomains.value = '';
+                statValid.textContent = '0';
+                statInvalid.textContent = '0';
+                statExists.textContent = '0';
+                statTotal.textContent = '0';
+                modalAddDomains.style.display = 'flex';
+                setTimeout(() => inputDomains.focus(), 100);
+              };
+            });
+            closeModalAddDomains.onclick = cancelModalAddDomains.onclick = function() {
+              modalAddDomains.style.display = 'none';
+              formAddDomains.reset();
+            };
+
+            // Modal de marcar como informado
+            const modalInformNotice = document.getElementById('modal-inform-notice');
+            const closeModalInformNotice = document.getElementById('close-modal-inform-notice');
+            const cancelModalInformNotice = document.getElementById('cancel-modal-inform-notice');
+            const formInformNotice = document.getElementById('form-inform-notice');
+            const inputInformNoticeId = document.getElementById('input-inform-notice-id');
+            const inputInformedAt = document.getElementById('input-informed-at');
+            const modalInformNoticeCode = document.getElementById('modal-inform-notice-code');
+
+            document.querySelectorAll('.btn-inform-notice').forEach(btn => {
+              btn.onclick = function() {
+                inputInformNoticeId.value = btn.getAttribute('data-notice-id');
+                modalInformNoticeCode.textContent = btn.getAttribute('data-notice-code');
+                
+                // Preenche com a data/hora atual por padrão
+                const now = new Date();
+                const offset = now.getTimezoneOffset() * 60000;
+                const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
+                inputInformedAt.value = localISOTime;
+
+                modalInformNotice.style.display = 'flex';
+              };
+            });
+
+            closeModalInformNotice.onclick = cancelModalInformNotice.onclick = function() {
+              modalInformNotice.style.display = 'none';
+              formInformNotice.reset();
+            };
+
+            formInformNotice.onsubmit = async function(e) {
+              e.preventDefault();
+              const noticeId = inputInformNoticeId.value;
+              const informedAt = inputInformedAt.value;
+
+              const submitBtn = formInformNotice.querySelector('button[type="submit"]');
+              const originalBtnText = submitBtn.textContent;
+              submitBtn.textContent = 'Enviando...';
+              submitBtn.disabled = true;
+
+              try {
+                const response = await fetch(`/notices/${noticeId}/inform`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ informedAt })
+                });
+
+                if (response.ok) {
+                  window.location.reload();
+                } else {
+                  const data = await response.json();
+                  alert(data.error || 'Erro ao atualizar status do ofício.');
+                }
+              } catch (error) {
+                alert('Erro na comunicação com o servidor.');
+              } finally {
+                submitBtn.textContent = originalBtnText;
+                submitBtn.disabled = false;
+              }
+            };
+
+            // Modal de anexar arquivos
+            const modalAddFiles = document.getElementById('modal-add-files');
+            const closeModalAddFiles = document.getElementById('close-modal-add-files');
+            const cancelModalAddFiles = document.getElementById('cancel-modal-add-files');
+            const formAddFiles = document.getElementById('form-add-files');
+            const inputFileNoticeId = document.getElementById('input-file-notice-id');
+            const modalFileNoticeCode = document.getElementById('modal-file-notice-code');
+            document.querySelectorAll('.btn-add-files').forEach(btn => {
+              btn.onclick = function() {
+                inputFileNoticeId.value = btn.getAttribute('data-notice-id');
+                modalFileNoticeCode.textContent = btn.getAttribute('data-notice-code');
+                modalAddFiles.style.display = 'flex';
+              };
+            });
+            closeModalAddFiles.onclick = cancelModalAddFiles.onclick = function() {
+              modalAddFiles.style.display = 'none';
+              formAddFiles.reset();
+            };
+
+            window.addEventListener('click', function(event) {
+              if (event.target === modalAddDomains) {
+                modalAddDomains.style.display = 'none';
+                formAddDomains.reset();
+              }
+              if (event.target === modalAddFiles) {
+                modalAddFiles.style.display = 'none';
+                formAddFiles.reset();
+              }
+              if (event.target === modalInformNotice) {
+                modalInformNotice.style.display = 'none';
+                formInformNotice.reset();
+              }
+            });
+      // Busca instantânea com debounce
+      const searchInput = document.getElementById('search-input');
+      const searchForm = searchInput && searchInput.form;
+      let debounceTimeout;
+      if (searchInput && searchForm) {
+        searchInput.addEventListener('input', function() {
+          clearTimeout(debounceTimeout);
+          debounceTimeout = setTimeout(() => {
+            // Marca para restaurar foco após reload
+            try { localStorage.setItem('focusSearchInput', '1'); } catch(e){}
+            searchForm.submit();
+          }, 400);
+        });
+        // Restaura foco se marcado
+        window.addEventListener('DOMContentLoaded', function() {
+          try {
+            if (localStorage.getItem('focusSearchInput') === '1') {
+              searchInput.focus();
+              searchInput.selectionStart = searchInput.value.length;
+              localStorage.removeItem('focusSearchInput');
+            }
+          } catch(e){}
+        });
+      }
+      // Modal de cadastro de ofício
+      const btnAddNotice = document.getElementById('btn-add-notice');
+      const modalAddNotice = document.getElementById('modal-add-notice');
+      const closeModalAddNotice = document.getElementById('close-modal-add-notice');
+      const cancelModalAddNotice = document.getElementById('cancel-modal-add-notice');
+
+      btnAddNotice.onclick = function() {
+        modalAddNotice.style.display = 'flex';
+      };
+      closeModalAddNotice.onclick = cancelModalAddNotice.onclick = function() {
+        modalAddNotice.style.display = 'none';
+        document.getElementById('form-add-notice').reset();
+      };
+      window.onclick = function(event) {
+        if (event.target === modalAddNotice) {
+          modalAddNotice.style.display = 'none';
+          document.getElementById('form-add-notice').reset();
+        }
+      };
+    </script>
+    </div> <!-- .main-content -->
+  </body>
+</html>

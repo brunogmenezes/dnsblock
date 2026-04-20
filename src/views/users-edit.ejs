@@ -6,46 +6,12 @@
     <title><%= title %></title>
     <link rel="stylesheet" href="/public/css/styles.css" />
   </head>
-  <body class="bg-grid">
-    <% if (toast && toast.text) { %>
-      <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
-        <div class="toast-title"><%= toast.type === 'error' ? 'Falha na execução' : 'Notificação' %></div>
-        <div class="toast-text"><%= toast.text %></div>
-        <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
-        <div class="toast-bar"></div>
-      </aside>
-    <% } %>
+  <body class="app-layout bg-grid">
+    <%- include('partials/sidebar', { activePage: 'users' }) %>
+    <div class="main-content">
+      <%- include('partials/topbar', { pageTitle: 'Editar Usuário', pageSubtitle: `Ajuste dados e permissões de ${targetUser.username}` }) %>
 
-    <header class="topbar">
-      <div>
-        <h1>Editar Usuário</h1>
-        <p>Ajuste dados e permissões de <strong><%= targetUser.username %></strong>.</p>
-      </div>
-      <div class="topbar-actions">
-        <a href="/dashboard" class="btn-secondary">Dashboard</a>
-        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
-        <a href="/reports/nslookup" class="btn-secondary">Relatórios</a>
-        <a href="/dns/integration" class="btn-secondary">Integração DNS</a>
-        <% if (user.isAdmin) { %>
-          <a href="/users" class="btn-secondary">Usuários</a>
-          <a href="/audit" class="btn-secondary">Auditoria</a>
-        <% } %>
-        <details class="user-dropdown">
-          <summary class="user-dropdown-trigger">
-            <span class="user-dropdown-text">@<%= user.username %></span>
-            <span class="user-dropdown-caret" aria-hidden="true">▾</span>
-          </summary>
-          <div class="user-dropdown-menu">
-            <a href="/account/password" class="user-dropdown-link">Trocar minha senha</a>
-            <form method="post" action="/logout" class="user-dropdown-form">
-              <button type="submit" class="user-dropdown-logout">Sair</button>
-            </form>
-          </div>
-        </details>
-      </div>
-    </header>
-
-    <main class="content-wrap narrow-wrap">
+      <main class="content-wrap narrow-wrap">
       <% if (error) { %>
         <div class="alert alert-error"><%= error %></div>
       <% } %>
@@ -105,5 +71,6 @@
         })();
       </script>
     <% } %>
+    </div> <!-- .main-content -->
   </body>
 </html>

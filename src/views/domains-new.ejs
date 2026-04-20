@@ -6,46 +6,12 @@
     <title><%= title %></title>
     <link rel="stylesheet" href="/public/css/styles.css" />
   </head>
-  <body class="bg-grid">
-    <% if (typeof toast !== 'undefined' && toast && toast.text) { %>
-      <aside class="toast toast-<%= toast.type || 'info' %>" id="app-toast" role="status" aria-live="polite">
-        <div class="toast-title"><%= toast.type === 'error' ? 'Falha no cadastro' : 'Notificação' %></div>
-        <div class="toast-text"><%= toast.text %></div>
-        <button type="button" class="toast-close" id="toast-close" aria-label="Fechar notificação">x</button>
-        <div class="toast-bar"></div>
-      </aside>
-    <% } %>
+  <body class="app-layout bg-grid">
+    <%- include('partials/sidebar', { activePage: 'notices' }) %>
+    <div class="main-content">
+      <%- include('partials/topbar', { pageTitle: 'Cadastrar Ofício', pageSubtitle: 'Insira as informações do novo ofício' }) %>
 
-    <header class="topbar">
-      <div>
-        <h1>Cadastrar Domínios</h1>
-        <p>Insira um domínio por linha, no formato exemplo: bet.jogo.com</p>
-      </div>
-      <div class="topbar-actions">
-        <a href="/dashboard" class="btn-secondary">Dashboard</a>
-        <a href="/domains/new" class="btn-secondary">Cadastrar Domínios</a>
-        <a href="/reports/nslookup" class="btn-secondary">Relatórios</a>
-        <a href="/dns/integration" class="btn-secondary">Integração DNS</a>
-        <% if (user.isAdmin) { %>
-          <a href="/users" class="btn-secondary">Usuários</a>
-          <a href="/audit" class="btn-secondary">Auditoria</a>
-        <% } %>
-        <details class="user-dropdown">
-          <summary class="user-dropdown-trigger">
-            <span class="user-dropdown-text">@<%= user.username %></span>
-            <span class="user-dropdown-caret" aria-hidden="true">▾</span>
-          </summary>
-          <div class="user-dropdown-menu">
-            <a href="/account/password" class="user-dropdown-link">Trocar minha senha</a>
-            <form method="post" action="/logout" class="user-dropdown-form">
-              <button type="submit" class="user-dropdown-logout">Sair</button>
-            </form>
-          </div>
-        </details>
-      </div>
-    </header>
-
-    <main class="content-wrap">
+      <main class="content-wrap">
       <% if (message) { %>
         <div class="alert alert-success"><%= message %></div>
       <% } %>
@@ -54,30 +20,12 @@
       <% } %>
 
       <section class="form-panel">
-        <form method="post" action="/domains" class="form-stack" enctype="multipart/form-data">
-          <label for="domains">Lista de Domínios</label>
-          <textarea id="domains" name="domains" rows="10" placeholder="bet.jogo.com&#10;site-aposta.net"><%= inputDomains %></textarea>
-          <p class="helper-text">O sistema remove espaços, vírgulas, acentos e caracteres especiais automaticamente e salva em minúsculo.</p>
-
-          <div class="date-grid">
-            <div>
-              <label for="blockStartDate">Data Inicial de Bloqueio (opcional)</label>
-              <input id="blockStartDate" name="blockStartDate" type="date" value="<%= inputBlockStartDate || '' %>" />
-            </div>
-            <div>
-              <label for="blockEndDate">Data Final de Bloqueio (opcional)</label>
-              <input id="blockEndDate" name="blockEndDate" type="date" value="<%= inputBlockEndDate || '' %>" />
-            </div>
-          </div>
-
-          <label for="noticeCode">Identificação do Ofício (opcional)</label>
-          <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" value="<%= inputNoticeCode || '' %>" />
-
-          <label for="officialFiles">Anexos do Ofício (opcional)</label>
-          <input id="officialFiles" name="officialFiles" type="file" multiple />
-          <p class="helper-text">Você pode anexar vários arquivos (PDF, PNG, CSV ou outro formato).</p>
-
-          <button type="submit" class="btn-primary">Salvar Domínios</button>
+        <form method="post" action="/notices" class="form-stack">
+          <label for="noticeCode">Número do Ofício</label>
+          <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" value="<%= inputNoticeCode || '' %>" required />
+          <label for="noticeName">Nome do Ofício</label>
+          <input id="noticeName" name="noticeName" type="text" placeholder="Nome do ofício" required />
+          <button type="submit" class="btn-primary">Salvar Ofício</button>
         </form>
       </section>
 
@@ -85,6 +33,19 @@
         <div class="table-header">
           <h3>Domínios inválidos para revisão</h3>
         </div>
+
+        <form method="get" action="/domains/new" class="table-controls" style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+          <input type="text" name="search" value="<%= invalidDomainsReview.search || '' %>" placeholder="Buscar..." style="flex:2;min-width:220px;max-width:400px;padding:8px 12px;font-size:1rem;" />
+          <label for="pageSize" style="margin:0 4px 0 12px;">Itens:</label>
+          <select name="pageSize" id="pageSize" onchange="this.form.submit()" style="width:60px;padding:4px 6px;font-size:0.98rem;">
+            <option value="5" <%= invalidDomainsReview.pageSize == 5 ? 'selected' : '' %>>5</option>
+            <option value="10" <%= invalidDomainsReview.pageSize == 10 ? 'selected' : '' %>>10</option>
+            <option value="20" <%= invalidDomainsReview.pageSize == 20 ? 'selected' : '' %>>20</option>
+            <option value="50" <%= invalidDomainsReview.pageSize == 50 ? 'selected' : '' %>>50</option>
+            <option value="100" <%= invalidDomainsReview.pageSize == 100 ? 'selected' : '' %>>100</option>
+          </select>
+          <button type="submit" class="btn-secondary">Buscar</button>
+        </form>
 
         <div class="table-container">
           <table>
@@ -94,26 +55,52 @@
                 <th>Valor normalizado</th>
                 <th>Motivo</th>
                 <th>Data</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
-              <% if (!invalidDomainsReview || invalidDomainsReview.length === 0) { %>
+              <% if (!invalidDomainsReview.rows || invalidDomainsReview.rows.length === 0) { %>
                 <tr>
                   <td colspan="4">Nenhum domínio inválido registrado para revisão.</td>
                 </tr>
               <% } %>
-              <% if (invalidDomainsReview && invalidDomainsReview.length > 0) { %>
-                <% invalidDomainsReview.forEach(function (row) { %>
+              <% if (invalidDomainsReview.rows && invalidDomainsReview.rows.length > 0) { %>
+                <% invalidDomainsReview.rows.forEach(function (row, idx) { %>
                   <tr>
                     <td><%= row.original_value %></td>
                     <td><%= row.normalized_value || '-' %></td>
                     <td><%= row.reason %></td>
                     <td><%= new Date(row.created_at).toLocaleString('pt-BR') %></td>
+                    <td>
+                      <form method="post" action="/domains/invalids/delete" style="display:inline;" onsubmit="return confirm('Excluir este domínio inválido?');">
+                        <input type="hidden" name="original_value" value="<%= row.original_value %>" />
+                        <button type="submit" class="btn-danger" title="Excluir">🗑️</button>
+                      </form>
+                    </td>
                   </tr>
                 <% }) %>
               <% } %>
             </tbody>
           </table>
+        </div>
+
+        <form method="post" action="/domains/invalids/delete-all" onsubmit="return confirm('Remover todos os domínios inválidos?');" style="margin: 16px 0 0 0; text-align:right;">
+          <button type="submit" class="btn-danger">Remover todos</button>
+        </form>
+
+        <div class="pagination-controls" style="display:flex;align-items:center;gap:10px;margin-top:10px;justify-content:center;">
+          <% if (invalidDomainsReview.page > 1) { %>
+            <a href="?page=<%= invalidDomainsReview.page - 1 %>&pageSize=<%= invalidDomainsReview.pageSize %>&search=<%= encodeURIComponent(invalidDomainsReview.search || '') %>" class="btn-secondary">Anterior</a>
+          <% } else { %>
+            <span class="btn-secondary" style="opacity:0.5;pointer-events:none;">Anterior</span>
+          <% } %>
+          <span>Página <%= invalidDomainsReview.page %> de <%= invalidDomainsReview.totalPages %></span>
+          <% if (invalidDomainsReview.page < invalidDomainsReview.totalPages) { %>
+            <a href="?page=<%= invalidDomainsReview.page + 1 %>&pageSize=<%= invalidDomainsReview.pageSize %>&search=<%= encodeURIComponent(invalidDomainsReview.search || '') %>" class="btn-secondary">Próxima</a>
+          <% } else { %>
+            <span class="btn-secondary" style="opacity:0.5;pointer-events:none;">Próxima</span>
+          <% } %>
+          <span style="margin-left:16px;">Total: <%= invalidDomainsReview.total %></span>
         </div>
       </section>
     </main>
@@ -139,5 +126,6 @@
         })();
       </script>
     <% } %>
+    </div> <!-- .main-content -->
   </body>
 </html>

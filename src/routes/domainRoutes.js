@@ -1,3 +1,4 @@
+
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -10,6 +11,82 @@ const { createNslookupJob, getJob, getPublicJobData } = require('../services/rep
 const { logAudit } = require('../services/auditLogger');
 
 const router = express.Router();
+
+// Adiciona domínios a um ofício e retorna JSON com o resultado
+router.post('/notices/add-domains', ensureAuthenticated, async (req, res) => {
+  const noticeId = Number(req.body.noticeId);
+  const domainsRaw = req.body.domains || '';
+  const userId = req.session.user.id;
+  
+  if (!noticeId || !domainsRaw.trim()) {
+    return res.status(400).json({ error: 'Informe os domínios para bloquear.' });
+  }
+
+  try {
+    // Verifica se o ofício já foi informado
+    const noticeCheck = await pool.query("SELECT status FROM notices WHERE id = $1", [noticeId]);
+    if (noticeCheck.rows.length > 0 && noticeCheck.rows[0].status === 'informed') {
+      return res.status(403).json({ error: 'Não é permitido adicionar domínios a um ofício já respondido.' });
+    }
+
+    const lines = domainsRaw.split(/\r?\n/).map(d => d.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      return res.status(400).json({ error: 'Nenhum domínio válido informado.' });
+    }
+
+    let validCount = 0;
+    let invalidCount = 0;
+    let registeredCount = 0;
+
+    for (const line of lines) {
+      if (!isValidDomain(line)) {
+        invalidCount++;
+        // Continua registrando os inválidos no banco para revisão, se desejar, mas ignora na inserção final
+        await pool.query(
+          `INSERT INTO domain_import_invalids (original_value, normalized_value, reason, created_by)
+           VALUES ($1, $2, $3, $4)`,
+          [line, normalizeDomain(line), 'Formato de domínio inválido', userId]
+        );
+        continue;
+      }
+
+      const domain = normalizeDomain(line);
+      
+      const insertResult = await pool.query(
+        `INSERT INTO domains (domain_name, status, blocked_at, notice_id, is_active, created_by)
+         VALUES ($1, 'blocked', now(), $2, true, $3)
+         ON CONFLICT (domain_name) DO NOTHING
+         RETURNING id`,
+        [domain, noticeId, userId]
+      );
+      
+      if (insertResult.rowCount === 0) {
+        registeredCount++;
+      } else {
+        validCount++;
+      }
+    }
+
+    // Se houve inserção de domínios válidos, atualiza o status do ofício para 'blocked'
+    if (validCount > 0) {
+      await pool.query(
+        "UPDATE notices SET status = 'blocked' WHERE id = $1 AND status = 'registered'",
+        [noticeId]
+      );
+    }
+
+    return res.json({
+      success: true,
+      validCount,
+      invalidCount,
+      registeredCount
+    });
+  } catch (error) {
+    console.error('Erro ao adicionar domínios ao ofício:', error);
+    return res.status(500).json({ error: 'Erro ao adicionar domínios ao ofício.' });
+  }
+});
+
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 const reportsDir = path.join(__dirname, '..', 'reports');
 
@@ -219,7 +296,7 @@ function renderDomainsForm(res, {
   toast = null,
 }) {
   return res.render('domains-new', {
-    title: 'Cadastrar Domínios - DNSBlock',
+    title: 'Ofícios - DNSBlock',
     user,
     message,
     error,
@@ -232,17 +309,35 @@ function renderDomainsForm(res, {
   });
 }
 
-async function getInvalidDomainsReview(userId) {
-  const result = await pool.query(
+async function getInvalidDomainsReview(userId, { page = 1, pageSize = 10, search = '' } = {}) {
+  const offset = (page - 1) * pageSize;
+  let where = 'created_by = $1';
+  let params = [userId];
+  if (search) {
+    where += ' AND (original_value ILIKE $2 OR normalized_value ILIKE $2 OR reason ILIKE $2)';
+    params.push(`%${search}%`);
+  }
+  const countResult = await pool.query(
+    `SELECT COUNT(*) FROM domain_import_invalids WHERE ${where}`,
+    params
+  );
+  const total = Number(countResult.rows[0].count);
+  const dataResult = await pool.query(
     `SELECT original_value, normalized_value, reason, created_at
      FROM domain_import_invalids
-     WHERE created_by = $1
+     WHERE ${where}
      ORDER BY created_at DESC
-     LIMIT 100`,
-    [userId]
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, pageSize, offset]
   );
-
-  return result.rows;
+  return {
+    rows: dataResult.rows,
+    total,
+    page,
+    pageSize,
+    search,
+    totalPages: Math.ceil(total / pageSize)
+  };
 }
 
 async function getDnsIntegrationViewData(req) {
@@ -562,421 +657,220 @@ router.get('/reports/nslookup', ensureAuthenticated, async (req, res) => {
   }
 });
 
-router.get('/domains/new', ensureAuthenticated, (req, res) => {
+router.get('/domains/new', ensureAuthenticated, async (req, res) => {
   const toast = consumeFlash(req);
-  return getInvalidDomainsReview(req.session.user.id)
-    .then((invalidDomainsReview) => {
-      return renderDomainsForm(res, {
-        user: req.session.user,
-        message: null,
-        error: null,
-        inputDomains: '',
-        inputNoticeCode: '',
-        inputBlockStartDate: '',
-        inputBlockEndDate: '',
-        invalidDomainsReview,
-        toast,
-      });
-    })
-    .catch((error) => {
-      console.error('Erro ao carregar domínios inválidos para revisão:', error);
-      return renderDomainsForm(res, {
-        user: req.session.user,
-        message: null,
-        error: null,
-        inputDomains: '',
-        inputNoticeCode: '',
-        inputBlockStartDate: '',
-        inputBlockEndDate: '',
-        invalidDomainsReview: [],
-        toast,
-      });
+  const page = parseInt(req.query.page, 10) || 1;
+  const pageSize = parseInt(req.query.pageSize, 10) || 5;
+  const search = (req.query.search || '').trim();
+  try {
+    const invalidDomainsReview = await getInvalidDomainsReview(req.session.user.id, { page, pageSize, search });
+    return renderDomainsForm(res, {
+      user: req.session.user,
+      message: null,
+      error: null,
+      inputDomains: '',
+      inputNoticeCode: '',
+      inputBlockStartDate: '',
+      inputBlockEndDate: '',
+      invalidDomainsReview,
+      toast,
     });
+  } catch (error) {
+    console.error('Erro ao carregar domínios inválidos para revisão:', error);
+    return renderDomainsForm(res, {
+      user: req.session.user,
+      message: null,
+      error: null,
+      inputDomains: '',
+      inputNoticeCode: '',
+      inputBlockStartDate: '',
+      inputBlockEndDate: '',
+      invalidDomainsReview: { rows: [], total: 0, page, pageSize, search, totalPages: 1 },
+      toast,
+    });
+  }
 });
 
 router.post(
-  '/domains',
+  '/notices',
   ensureAuthenticated,
-  upload.fields([
-    { name: 'officialFile', maxCount: 10 },
-    { name: 'officialFiles', maxCount: 10 },
-  ]),
+  upload.array('noticeFile'),
   async (req, res) => {
-  const input = req.body.domains || '';
-  const noticeCode = (req.body.noticeCode || '').trim();
-  const blockStartDate = (req.body.blockStartDate || '').trim();
-  const blockEndDate = (req.body.blockEndDate || '').trim();
-  const uploadedFiles = getUploadedOfficialFiles(req);
+    const noticeCode = (req.body.noticeCode || '').trim();
+    const noticeName = (req.body.noticeName || '').trim();
+    const blockStartDate = req.body.blockStartDate ? req.body.blockStartDate : null;
+    const blockEndDate = req.body.blockEndDate ? req.body.blockEndDate : null;
+    const files = req.files;
 
-  if (!input.trim()) {
-    return res.status(400).render('domains-new', {
-      title: 'Cadastrar Domínios - DNSBlock',
-      user: req.session.user,
-      message: null,
-      error: 'Informe ao menos um domínio.',
-      inputDomains: '',
-      inputNoticeCode: noticeCode,
-      inputBlockStartDate: blockStartDate,
-      inputBlockEndDate: blockEndDate,
-      invalidDomainsReview: [],
-      toast: null,
-    });
-  }
-
-  if (blockStartDate && Number.isNaN(Date.parse(blockStartDate))) {
-    return res.status(400).render('domains-new', {
-      title: 'Cadastrar Domínios - DNSBlock',
-      user: req.session.user,
-      message: null,
-      error: 'Data inicial de bloqueio inválida.',
-      inputDomains: input,
-      inputNoticeCode: noticeCode,
-      inputBlockStartDate: blockStartDate,
-      inputBlockEndDate: blockEndDate,
-      invalidDomainsReview: [],
-      toast: null,
-    });
-  }
-
-  if (blockEndDate && Number.isNaN(Date.parse(blockEndDate))) {
-    return res.status(400).render('domains-new', {
-      title: 'Cadastrar Domínios - DNSBlock',
-      user: req.session.user,
-      message: null,
-      error: 'Data final de bloqueio inválida.',
-      inputDomains: input,
-      inputNoticeCode: noticeCode,
-      inputBlockStartDate: blockStartDate,
-      inputBlockEndDate: blockEndDate,
-      invalidDomainsReview: [],
-      toast: null,
-    });
-  }
-
-  if (blockStartDate && blockEndDate && blockEndDate < blockStartDate) {
-    return res.status(400).render('domains-new', {
-      title: 'Cadastrar Domínios - DNSBlock',
-      user: req.session.user,
-      message: null,
-      error: 'Data final não pode ser menor que a data inicial.',
-      inputDomains: input,
-      inputNoticeCode: noticeCode,
-      inputBlockStartDate: blockStartDate,
-      inputBlockEndDate: blockEndDate,
-      invalidDomainsReview: [],
-      toast: null,
-    });
-  }
-
-  const parsedLines = input
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((originalValue) => {
-      const normalizedValue = normalizeDomain(originalValue);
-      return { originalValue, normalizedValue };
-    });
-
-  const invalidItems = [];
-  const validNormalizedDomains = [];
-
-  for (const item of parsedLines) {
-    if (!item.normalizedValue) {
-      invalidItems.push({
-        originalValue: item.originalValue,
-        normalizedValue: null,
-        reason: 'Sem caracteres válidos após limpeza.',
+    if (!noticeCode || !noticeName) {
+      return res.status(400).render('domains-new', {
+        title: 'Cadastrar Ofício - DNSBlock',
+        user: req.session.user,
+        message: null,
+        error: 'Preencha o número e o nome do ofício.',
+        inputNoticeCode: noticeCode,
+        toast: null,
       });
-      continue;
     }
 
-    if (!isValidDomain(item.normalizedValue)) {
-      invalidItems.push({
-        originalValue: item.originalValue,
-        normalizedValue: item.normalizedValue,
-        reason: 'Formato inválido. Exemplo válido: bet.jogo.com.',
+    try {
+      const noticeResult = await pool.query(
+        `INSERT INTO notices (notice_code, original_file_name, uploaded_by, block_start_date, block_end_date) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [noticeCode, noticeName, req.session.user.id, blockStartDate, blockEndDate]
+      );
+      
+      const newNoticeId = noticeResult.rows[0].id;
+
+      if (files && files.length > 0) {
+        for (const file of files) {
+          await pool.query(
+            `INSERT INTO notice_files (notice_id, original_file_name, stored_file_name, mime_type, file_size, uploaded_by)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [newNoticeId, file.originalname, file.filename, file.mimetype, file.size, req.session.user.id]
+          );
+        }
+      }
+
+      setFlash(req, 'success', 'Ofício cadastrado com sucesso!');
+      return res.redirect('/notices');
+    } catch (error) {
+      console.error('Erro ao cadastrar ofício:', error);
+      return res.status(500).render('domains-new', {
+        title: 'Cadastrar Ofício - DNSBlock',
+        user: req.session.user,
+        message: null,
+        error: 'Erro interno ao cadastrar ofício.',
+        inputNoticeCode: noticeCode,
+        toast: null,
       });
-      continue;
+    }
+  }
+);
+
+router.post(
+  '/notices/add-files',
+  ensureAuthenticated,
+  upload.array('noticeFile'),
+  async (req, res) => {
+    const noticeId = Number(req.body.noticeId);
+    const files = req.files;
+
+    if (!noticeId || !Number.isInteger(noticeId)) {
+      setFlash(req, 'error', 'Ofício inválido.');
+      return res.redirect('/notices');
     }
 
-    validNormalizedDomains.push(item.normalizedValue);
+    if (!files || files.length === 0) {
+      setFlash(req, 'error', 'Nenhum arquivo enviado.');
+      return res.redirect('/notices');
+    }
+
+    try {
+      // Verifica se o ofício já foi informado
+      const noticeCheck = await pool.query("SELECT status FROM notices WHERE id = $1", [noticeId]);
+      if (noticeCheck.rows.length > 0 && noticeCheck.rows[0].status === 'informed') {
+        setFlash(req, 'error', 'Não é permitido anexar arquivos a um ofício já respondido.');
+        return res.redirect('/notices');
+      }
+
+      for (const file of files) {
+        await pool.query(
+          `INSERT INTO notice_files (notice_id, original_file_name, stored_file_name, mime_type, file_size, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [noticeId, file.originalname, file.filename, file.mimetype, file.size, req.session.user.id]
+        );
+      }
+
+      setFlash(req, 'success', 'Arquivo(s) anexado(s) com sucesso!');
+      return res.redirect('/notices');
+    } catch (error) {
+      console.error('Erro ao anexar arquivos ao ofício:', error);
+      setFlash(req, 'error', 'Erro interno ao anexar arquivos.');
+      return res.redirect('/notices');
+    }
+  }
+);
+
+  // Blocos de validação de datas removidos após refatoração para fluxo por ofício
+
+  // Trecho removido: lógica antiga de cadastro de domínios não é mais usada
+  // Trecho removido: lógica antiga de cadastro de domínios não é mais usada
+
+  // Trecho removido: lógica antiga de cadastro/reativação de domínios não é mais usada
+
+// Marca um ofício como informado/respondido
+router.post('/notices/:id/inform', ensureAuthenticated, async (req, res) => {
+  const noticeId = Number(req.params.id);
+  const informedAt = req.body.informedAt;
+  const userId = req.session.user.id;
+
+  if (!noticeId || !informedAt) {
+    return res.status(400).json({ error: 'Dados insuficientes para marcar como informado.' });
   }
 
   try {
-    const totalValidNormalized = validNormalizedDomains.length;
-    const uniqueDomains = [...new Set(validNormalizedDomains)];
-    const duplicatedInPayload = totalValidNormalized - uniqueDomains.length;
-    const client = await pool.connect();
-
-    try {
-      await client.query('BEGIN');
-
-      const existingResult = await client.query(
-        `SELECT domain_name, is_active
-         FROM domains
-         WHERE domain_name = ANY($1::varchar[])`,
-        [uniqueDomains]
-      );
-
-      const activeDomainsSet = new Set(
-        existingResult.rows.filter((row) => row.is_active).map((row) => row.domain_name)
-      );
-      const inactiveDomainsSet = new Set(
-        existingResult.rows.filter((row) => !row.is_active).map((row) => row.domain_name)
-      );
-
-      const newDomains = uniqueDomains.filter(
-        (domain) => !activeDomainsSet.has(domain) && !inactiveDomainsSet.has(domain)
-      );
-      const reactivatedDomains = uniqueDomains.filter((domain) => inactiveDomainsSet.has(domain));
-      const ignoredAlreadyRegistered = uniqueDomains.filter((domain) => activeDomainsSet.has(domain)).length;
-      const ignoredTotal = ignoredAlreadyRegistered + duplicatedInPayload + invalidItems.length;
-      const hasNoticeInfo = Boolean(noticeCode || uploadedFiles.length > 0);
-
-      let noticeId = null;
-
-      if (hasNoticeInfo && newDomains.length + reactivatedDomains.length > 0) {
-        const primaryFile = uploadedFiles[0] || null;
-
-        const noticeInsert = await client.query(
-          `INSERT INTO notices (
-              notice_code,
-              original_file_name,
-              stored_file_name,
-              mime_type,
-              file_size,
-              uploaded_by
-            )
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id`,
-          [
-            noticeCode || null,
-            primaryFile ? primaryFile.originalname : null,
-            primaryFile ? primaryFile.filename : null,
-            primaryFile ? primaryFile.mimetype : null,
-            primaryFile ? primaryFile.size : null,
-            req.session.user.id,
-          ]
-        );
-
-        noticeId = noticeInsert.rows[0].id;
-
-        for (const file of uploadedFiles) {
-          await client.query(
-            `INSERT INTO notice_files (
-                notice_id,
-                original_file_name,
-                stored_file_name,
-                mime_type,
-                file_size,
-                uploaded_by
-              )
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [
-              noticeId,
-              file.originalname || null,
-              file.filename || null,
-              file.mimetype || null,
-              file.size || null,
-              req.session.user.id,
-            ]
-          );
-        }
-      }
-
-      for (const domain of newDomains) {
-        const insertDomainResult = await client.query(
-          `INSERT INTO domains (
-              domain_name,
-              status,
-              created_by,
-              notice_id,
-              block_start_date,
-              block_end_date
-            )
-           VALUES ($1, 'blocked', $2, $3, $4, $5)
-           ON CONFLICT (domain_name) DO NOTHING
-           RETURNING id`,
-          [
-            domain,
-            req.session.user.id,
-            noticeId,
-            blockStartDate || null,
-            blockEndDate || null,
-          ]
-        );
-
-        if (insertDomainResult.rows.length > 0) {
-          await client.query(
-            `INSERT INTO domain_executions (domain_id, executed_by, executed_at)
-             VALUES ($1, $2, now())`,
-            [insertDomainResult.rows[0].id, req.session.user.id]
-          );
-
-          await client.query(
-            `UPDATE domains
-             SET blocked_at = now(),
-                 updated_at = now()
-             WHERE id = $1`,
-            [insertDomainResult.rows[0].id]
-          );
-        }
-      }
-
-      for (const domain of reactivatedDomains) {
-        const updateDomainResult = await client.query(
-          `UPDATE domains
-           SET is_active = true,
-               status = 'blocked',
-               notice_id = CASE
-                 WHEN $2::BIGINT IS NOT NULL THEN $2
-                 ELSE notice_id
-               END,
-               block_start_date = CASE
-                 WHEN $3::DATE IS NOT NULL THEN $3
-                 ELSE block_start_date
-               END,
-               block_end_date = CASE
-                 WHEN $4::DATE IS NOT NULL THEN $4
-                 ELSE block_end_date
-               END,
-               blocked_at = now(),
-               updated_at = now()
-           WHERE domain_name = $1
-             AND is_active = false
-           RETURNING id`,
-          [
-            domain,
-            noticeId,
-            blockStartDate || null,
-            blockEndDate || null,
-          ]
-        );
-
-        if (updateDomainResult.rows.length > 0) {
-          await client.query(
-            `INSERT INTO domain_executions (domain_id, executed_by, executed_at)
-             VALUES ($1, $2, now())`,
-            [updateDomainResult.rows[0].id, req.session.user.id]
-          );
-        }
-      }
-
-      if (newDomains.length > 0 || reactivatedDomains.length > 0) {
-        await createNextBlocklistVersion(client, req.session.user.id, 'insert-domains');
-      }
-
-      for (const invalidItem of invalidItems) {
-        await client.query(
-          `INSERT INTO domain_import_invalids (
-              original_value,
-              normalized_value,
-              reason,
-              created_by
-            )
-           VALUES ($1, $2, $3, $4)`,
-          [
-            invalidItem.originalValue,
-            invalidItem.normalizedValue,
-            invalidItem.reason,
-            req.session.user.id,
-          ]
-        );
-      }
-
-      await client.query('COMMIT');
-
-      await logAudit(pool, {
-        req,
-        action: 'domains.import',
-        details: {
-          noticeCode: noticeCode || null,
-          noticeCreated: Boolean(noticeId),
-          uploadedFilesCount: uploadedFiles.length,
-          insertedDomains: newDomains.length,
-          reactivatedDomains: reactivatedDomains.length,
-          invalidDomains: invalidItems.length,
-          ignoredDomains: ignoredTotal,
-          blockStartDate: blockStartDate || null,
-          blockEndDate: blockEndDate || null,
-        },
-      });
-
-      if (uploadedFiles.length > 0 && hasNoticeInfo && newDomains.length + reactivatedDomains.length === 0) {
-        removeUploadedFiles(uploadedFiles);
-      }
-
-      setFlash(
-        req,
-        'success',
-        `Envio concluído. Domínios novos: ${newDomains.length}. Domínios reativados: ${reactivatedDomains.length}. Domínios ignorados: ${ignoredTotal} (já cadastrados, duplicados ou inválidos para revisão).`
-      );
-    } catch (transactionError) {
-      await client.query('ROLLBACK');
-      removeUploadedFiles(uploadedFiles);
-      throw transactionError;
-    } finally {
-      client.release();
+    // Verifica se o ofício tem domínios antes de permitir marcar como informado
+    const domainCheck = await pool.query("SELECT COUNT(*) as count FROM domains WHERE notice_id = $1", [noticeId]);
+    if (parseInt(domainCheck.rows[0].count) === 0) {
+      return res.status(400).json({ error: 'Não é permitido responder um ofício que não possui domínios cadastrados.' });
     }
 
-    return res.redirect('/domains/new');
+    await pool.query(
+      `UPDATE notices 
+       SET status = 'informed', 
+           informed_at = $1, 
+           informed_by = $2 
+       WHERE id = $3`,
+      [informedAt, userId, noticeId]
+    );
+
+    return res.json({ success: true });
   } catch (error) {
-    console.error('Erro ao cadastrar domínios:', error);
-    return res.status(500).render('domains-new', {
-      title: 'Cadastrar Domínios - DNSBlock',
-      user: req.session.user,
-      message: null,
-      error: 'Erro interno ao cadastrar domínios.',
-      inputDomains: input,
-      inputNoticeCode: noticeCode,
-      inputBlockStartDate: blockStartDate,
-      inputBlockEndDate: blockEndDate,
-      invalidDomainsReview: [],
-      toast: null,
-    });
+    console.error('Erro ao marcar ofício como informado:', error);
+    return res.status(500).json({ error: 'Erro interno ao atualizar status do ofício.' });
   }
-}
-);
+});
 
-router.get('/notices/:id/download', ensureAuthenticated, async (req, res) => {
+router.get('/notices/:id/download/:fileId', ensureAuthenticated, async (req, res) => {
   const noticeId = Number(req.params.id);
+  const fileId = Number(req.params.fileId);
 
-  if (!Number.isInteger(noticeId) || noticeId <= 0) {
-    return res.status(400).send('Ofício inválido.');
+  if (!Number.isInteger(noticeId) || noticeId <= 0 || !Number.isInteger(fileId) || fileId <= 0) {
+    return res.status(400).send('Parâmetros inválidos.');
   }
 
   try {
     const result = await pool.query(
       `SELECT original_file_name, stored_file_name, mime_type
-       FROM notices
-       WHERE id = $1`,
-      [noticeId]
+       FROM notice_files
+       WHERE id = $1 AND notice_id = $2`,
+      [fileId, noticeId]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).send('Ofício não encontrado.');
+      return res.status(404).send('Arquivo não encontrado.');
     }
 
-    const notice = result.rows[0];
+    const fileData = result.rows[0];
 
-    if (!notice.stored_file_name) {
+    if (!fileData.stored_file_name) {
       return res.status(404).send('Este ofício não possui arquivo anexado.');
     }
 
-    const filePath = path.join(uploadsDir, notice.stored_file_name);
+    const filePath = path.join(uploadsDir, fileData.stored_file_name);
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).send('Arquivo de ofício não encontrado no servidor.');
+      return res.status(404).send('Arquivo não encontrado no servidor.');
     }
 
-    if (notice.mime_type) {
-      res.setHeader('Content-Type', notice.mime_type);
+    if (fileData.mime_type) {
+      res.setHeader('Content-Type', fileData.mime_type);
     }
 
-    return res.download(filePath, notice.original_file_name || notice.stored_file_name);
+    return res.download(filePath, fileData.original_file_name || fileData.stored_file_name);
   } catch (error) {
-    console.error('Erro ao baixar ofício:', error);
-    return res.status(500).send('Erro interno ao baixar ofício.');
+    console.error('Erro ao baixar arquivo do ofício:', error);
+    return res.status(500).send('Erro interno ao baixar arquivo.');
   }
 });
 
@@ -1576,6 +1470,66 @@ router.post('/domains/delete/all', ensureAuthenticated, async (req, res) => {
     console.error('Erro ao excluir todos os domínios:', error);
     setFlash(req, 'error', 'Erro ao excluir todos os domínios.');
     return res.redirect('/dashboard');
+  }
+});
+
+// Listagem de ofícios cadastrados com paginação, busca e download
+router.get('/notices', ensureAuthenticated, async (req, res) => {
+  const search = (req.query.search || '').trim();
+  let where = '1=1';
+  let params = [];
+  if (search) {
+    where += ' AND (n.notice_code ILIKE $1)';
+    params.push(`%${search}%`);
+  }
+  const dataResult = await pool.query(
+    `SELECT n.id, n.notice_code, n.original_file_name, n.created_at, n.uploaded_by, n.id as notice_id,
+            n.status, n.informed_at, n.informed_by,
+            (SELECT username FROM users WHERE id = n.uploaded_by) as username,
+            (SELECT username FROM users WHERE id = n.informed_by) as informer_username,
+            COALESCE((SELECT COUNT(*) FROM domains d WHERE d.notice_id = n.id), 0) as total_domains,
+            COALESCE(
+              (SELECT json_agg(json_build_object('id', nf.id, 'original_file_name', nf.original_file_name))
+               FROM notice_files nf WHERE nf.notice_id = n.id),
+              '[]'::json
+            ) as files
+     FROM notices n
+     WHERE ${where}
+     ORDER BY n.created_at DESC`,
+    params
+  );
+  const flash = req.session.flash || null;
+  if (req.session.flash) delete req.session.flash;
+  return res.render('notices-list', {
+    title: 'Ofícios cadastrados',
+    user: req.session.user,
+    notices: dataResult.rows,
+    search,
+    flash,
+  });
+});
+
+// Verifica se domínios já existem no banco (usado pelo modal de adição rápida)
+router.post('/domains/check-exists', ensureAuthenticated, async (req, res) => {
+  try {
+    const { domains } = req.body;
+    if (!Array.isArray(domains) || domains.length === 0) {
+      return res.json({ registered: [] });
+    }
+    
+    // Filtra duplicatas e limita para evitar abusos
+    const uniqueDomains = [...new Set(domains)].slice(0, 500);
+    
+    const result = await pool.query(
+      'SELECT domain_name FROM domains WHERE domain_name = ANY($1)',
+      [uniqueDomains]
+    );
+    
+    const registered = result.rows.map(r => r.domain_name);
+    return res.json({ registered });
+  } catch (error) {
+    console.error('Erro ao verificar domínios:', error);
+    return res.status(500).json({ error: 'Erro interno' });
   }
 });
 
