@@ -9,8 +9,27 @@ const pool = require('../config/db');
 const { isValidDomain, normalizeDomain } = require('../services/domainValidator');
 const { createNslookupJob, getJob, getPublicJobData } = require('../services/reportJobs');
 const { logAudit } = require('../services/auditLogger');
+const { PDFParse } = require('pdf-parse');
+const { extractDomainsWithAI } = require('../services/aiExtractor');
 
 const router = express.Router();
+
+/**
+ * Corrige a codificação de strings vindas do multer (multipart/form-data).
+ * O multer interpreta os cabeçalhos como Latin-1, mas os navegadores enviam como UTF-8.
+ */
+const fixEncoding = (str) => {
+  if (typeof str !== 'string') return str;
+  // Se a string contiver caracteres que não parecem ser UTF-8 mal interpretado, 
+  // o Buffer.from(..., 'latin1').toString('utf8') pode falhar ou retornar lixo.
+  // No entanto, para o caso clássico de UTF-8 lido como Latin-1, isso funciona perfeitamente.
+  try {
+    return Buffer.from(str, 'latin1').toString('utf8');
+  } catch (e) {
+    return str;
+  }
+};
+
 
 // Adiciona domínios a um ofício e retorna JSON com o resultado
 router.post('/notices/add-domains', ensurePermission('notices.add_domains'), async (req, res) => {
@@ -459,6 +478,20 @@ router.get('/api/notices/:id/domains', ensurePermission('dashboard'), async (req
   }
 });
 
+router.get('/api/notices/:id/files', ensurePermission('dashboard'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'SELECT id, original_file_name, mime_type FROM notice_files WHERE notice_id = $1 ORDER BY created_at DESC',
+      [id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar arquivos:', error);
+    res.status(500).json({ error: 'Erro ao buscar arquivos do ofício.' });
+  }
+});
+
 router.get('/api/domains/global', ensurePermission('dashboard'), async (req, res) => {
   const search = (req.query.search || '').trim();
   const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -761,8 +794,8 @@ router.post(
   ensurePermission('notices.create'),
   upload.array('noticeFile'),
   async (req, res) => {
-    const noticeCode = (req.body.noticeCode || '').trim();
-    const noticeName = (req.body.noticeName || '').trim();
+    const noticeCode = fixEncoding(req.body.noticeCode || '').trim();
+    const noticeName = fixEncoding(req.body.noticeName || '').trim();
     const blockStartDate = req.body.blockStartDate ? req.body.blockStartDate : null;
     const blockEndDate = req.body.blockEndDate ? req.body.blockEndDate : null;
     const files = req.files;
@@ -791,7 +824,7 @@ router.post(
           await pool.query(
             `INSERT INTO notice_files (notice_id, original_file_name, stored_file_name, mime_type, file_size, uploaded_by)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [newNoticeId, file.originalname, file.filename, file.mimetype, file.size, req.session.user.id]
+            [newNoticeId, fixEncoding(file.originalname), file.filename, file.mimetype, file.size, req.session.user.id]
           );
         }
       }
@@ -853,7 +886,7 @@ router.post(
         await pool.query(
           `INSERT INTO notice_files (notice_id, original_file_name, stored_file_name, mime_type, file_size, uploaded_by)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [noticeId, file.originalname, file.filename, file.mimetype, file.size, req.session.user.id]
+          [noticeId, fixEncoding(file.originalname), file.filename, file.mimetype, file.size, req.session.user.id]
         );
       }
 
@@ -1685,6 +1718,146 @@ router.post('/domains/check-exists', ensureAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Erro ao verificar domínios:', error);
     return res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+const memoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // Limite de 10MB para PDFs
+});
+
+// Rota para extrair domínios de um arquivo PDF
+router.post('/api/domains/extract-pdf', ensureAuthenticated, memoryUpload.single('pdfFile'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+  }
+
+  try {
+    const dataBuffer = req.file.buffer;
+    const parser = new PDFParse({ data: dataBuffer });
+    const data = await parser.getText();
+    let text = data.text;
+    await parser.destroy();
+
+    // Inteligência para lidar com quebras de linha no meio de domínios (comum em tabelas de PDF)
+    // Se uma linha termina com letra/número e a próxima começa sem espaço, nós as unimos.
+    text = text.replace(/([a-z0-9.-])\n\s*([a-z0-9.-])/gi, '$1$2');
+
+    // Tenta extrair com IA se a chave estiver configurada, senão usa o Regex antigo
+    let finalDomains = [];
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        finalDomains = await extractDomainsWithAI(text);
+      } catch (aiErr) {
+        console.warn('IA falhou, usando Regex fallback:', aiErr.message);
+        const domainRegex = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
+        finalDomains = text.match(domainRegex) || [];
+      }
+    } else {
+      const domainRegex = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
+      finalDomains = text.match(domainRegex) || [];
+    }
+
+    const VALID_TLDS = [
+      'com', 'br', 'net', 'org', 'info', 'site', 'top', 'xyz', 'online', 'biz', 'club', 'link', 
+      'icu', 'live', 'shop', 'vip', 'work', 'pro', 'fun', 'me', 'tv', 'app', 'dev', 'tech', 
+      'store', 'art', 'cloud', 'click', 'monster', 'buzz', 'best', 'bid', 'date', 'download', 
+      'faith', 'loan', 'party', 'race', 'review', 'stream', 'trade', 'webcam', 'win', 'space', 
+      'website', 'host', 'press', 'news', 'design', 'expert', 'agency', 'group', 'company', 'world'
+    ];
+
+    const foundDomains = Array.from(new Set(finalDomains.map(d => d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0])));
+
+    const filteredDomains = foundDomains.filter(d => {
+      const parts = d.split('.');
+      const tld = parts[parts.length - 1];
+      
+      const isBlacklisted = [
+        'policiacivil.pe.gov.br',
+        'google.com',
+        'adobe.com',
+        'gov.br'
+      ].some(noise => d.endsWith(noise));
+      
+      return (VALID_TLDS.includes(tld) || process.env.GEMINI_API_KEY) && !isBlacklisted && isValidDomain(d);
+    });
+
+    return res.json({ 
+      success: true, 
+      count: filteredDomains.length,
+      domains: filteredDomains 
+    });
+  } catch (error) {
+    console.error('Erro ao processar PDF:', error);
+    return res.status(500).json({ error: 'Falha ao ler o PDF. Certifique-se de que é um documento válido.' });
+  }
+});
+
+router.post('/api/domains/extract-from-attachment', ensurePermission('dashboard'), async (req, res) => {
+  try {
+    const { fileId } = req.body;
+    if (!fileId) return res.status(400).json({ error: 'ID do arquivo não informado.' });
+
+    const fileRes = await pool.query('SELECT stored_file_name, original_file_name FROM notice_files WHERE id = $1', [fileId]);
+    if (fileRes.rows.length === 0) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+    
+    const filePath = path.join(uploadsDir, fileRes.rows[0].stored_file_name);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Arquivo físico não encontrado no servidor.' });
+
+    const dataBuffer = fs.readFileSync(filePath);
+    const parser = new PDFParse({ data: dataBuffer });
+    const data = await parser.getText();
+    let text = data.text;
+    await parser.destroy();
+
+    // Inteligência para lidar com quebras de linha no meio de domínios (comum em tabelas de PDF)
+    text = text.replace(/([a-z0-9.-])\n\s*([a-z0-9.-])/gi, '$1$2');
+
+    let finalDomains = [];
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        finalDomains = await extractDomainsWithAI(text);
+      } catch (aiErr) {
+        console.warn('IA falhou, usando Regex fallback:', aiErr.message);
+        const domainRegex = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
+        finalDomains = text.match(domainRegex) || [];
+      }
+    } else {
+      const domainRegex = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
+      finalDomains = text.match(domainRegex) || [];
+    }
+
+    const VALID_TLDS = [
+      'com', 'br', 'net', 'org', 'info', 'site', 'top', 'xyz', 'online', 'biz', 'club', 'link', 
+      'icu', 'live', 'shop', 'vip', 'work', 'pro', 'fun', 'me', 'tv', 'app', 'dev', 'tech', 
+      'store', 'art', 'cloud', 'click', 'monster', 'buzz', 'best', 'bid', 'date', 'download', 
+      'faith', 'loan', 'party', 'race', 'review', 'stream', 'trade', 'webcam', 'win', 'space', 
+      'website', 'host', 'press', 'news', 'design', 'expert', 'agency', 'group', 'company', 'world'
+    ];
+
+    console.log(`Extração concluída. Total bruto de domínios: ${finalDomains.length}`);
+    const foundDomains = Array.from(new Set(finalDomains.map(d => d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0])));
+    console.log(`Iniciando filtragem de ${foundDomains.length} domínios únicos...`);
+
+    const filteredDomains = foundDomains.filter(d => {
+      const parts = d.split('.');
+      const tld = parts[parts.length - 1];
+      
+      const isBlacklisted = [
+        'policiacivil.pe.gov.br',
+        'google.com',
+        'adobe.com',
+        'gov.br'
+      ].some(noise => d.endsWith(noise));
+      
+      return (VALID_TLDS.includes(tld) || process.env.GEMINI_API_KEY) && !isBlacklisted && isValidDomain(d);
+    });
+
+    console.log(`Enviando resposta com ${filteredDomains.length} domínios para o cliente.`);
+    return res.json({ success: true, domains: filteredDomains });
+  } catch (error) {
+    console.error('Erro ao processar anexo:', error);
+    return res.status(500).json({ error: 'Falha ao ler o arquivo selecionado.' });
   }
 });
 
