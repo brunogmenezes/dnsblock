@@ -632,19 +632,15 @@
               btnTransferPdf.disabled = true;
 
               try {
-                console.log('Iniciando requisição de extração para o arquivo:', fileId);
                 const res = await fetch('/api/domains/extract-from-attachment', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ fileId })
                 });
-                console.log('Resposta recebida do servidor, status:', res.status);
                 let data;
                 try {
                   data = await res.json();
-                  console.log('Dados recebidos e parseados com sucesso. Domínios encontrados:', data.domains ? data.domains.length : 0);
                 } catch (jsonErr) {
-                  console.error('Erro ao processar JSON de resposta:', jsonErr);
                   throw new Error('O servidor retornou uma resposta inválida.');
                 }
 

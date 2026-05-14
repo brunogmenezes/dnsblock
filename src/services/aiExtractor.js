@@ -68,14 +68,12 @@ async function extractDomainsWithAI(text) {
     ---
   `;
 
-  console.log(`Enviando prompt de extração para o modelo (${truncatedText.length} caracteres)...`);
+  console.log(`Iniciando extração IA (${truncatedText.length} caracteres)...`);
   const startTime = Date.now();
-  console.log(`[DEBUG] Iniciando chamada model.generateContent para ${truncatedText.length} caracteres...`);
   try {
     const result = await model.generateContent(prompt);
-    console.log(`[DEBUG] Chamada concluída. Objeto result recebido.`);
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`Resposta recebida do Gemini em ${duration}s, processando texto...`);
+    console.log(`Resposta IA recebida em ${duration}s.`);
     const response = await result.response;
     const cleanText = response.text().trim();
     

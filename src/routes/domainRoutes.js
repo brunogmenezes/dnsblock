@@ -24,7 +24,13 @@ const fixEncoding = (str) => {
   // o Buffer.from(..., 'latin1').toString('utf8') pode falhar ou retornar lixo.
   // No entanto, para o caso clássico de UTF-8 lido como Latin-1, isso funciona perfeitamente.
   try {
-    return Buffer.from(str, 'latin1').toString('utf8');
+    const fixed = Buffer.from(str, 'latin1').toString('utf8');
+    // Se a conversão resultar em caracteres de substituição (\uFFFD), 
+    // provavelmente a string original já estava em UTF-8 ou não é conversível.
+    if (fixed.includes('\uFFFD')) {
+      return str;
+    }
+    return fixed;
   } catch (e) {
     return str;
   }
@@ -1835,9 +1841,7 @@ router.post('/api/domains/extract-from-attachment', ensurePermission('dashboard'
       'website', 'host', 'press', 'news', 'design', 'expert', 'agency', 'group', 'company', 'world'
     ];
 
-    console.log(`Extração concluída. Total bruto de domínios: ${finalDomains.length}`);
     const foundDomains = Array.from(new Set(finalDomains.map(d => d.toLowerCase().replace(/^https?:\/\//, '').split('/')[0])));
-    console.log(`Iniciando filtragem de ${foundDomains.length} domínios únicos...`);
 
     const filteredDomains = foundDomains.filter(d => {
       const parts = d.split('.');
@@ -1853,7 +1857,6 @@ router.post('/api/domains/extract-from-attachment', ensurePermission('dashboard'
       return (VALID_TLDS.includes(tld) || process.env.GEMINI_API_KEY) && !isBlacklisted && isValidDomain(d);
     });
 
-    console.log(`Enviando resposta com ${filteredDomains.length} domínios para o cliente.`);
     return res.json({ success: true, domains: filteredDomains });
   } catch (error) {
     console.error('ERRO CRÍTICO NO PROCESSO DE EXTRAÇÃO:', error);
