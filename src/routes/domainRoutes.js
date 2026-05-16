@@ -7,7 +7,7 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const { ensureAuthenticated, ensurePermission } = require('../middlewares/auth');
 const pool = require('../config/db');
-const { isValidDomain, normalizeDomain } = require('../services/domainValidator');
+const { isValidDomain, normalizeDomain, isValidIP, isValidIPv4, isValidIPv6 } = require('../services/domainValidator');
 const { createNslookupJob, getJob, getPublicJobData } = require('../services/reportJobs');
 const { logAudit } = require('../services/auditLogger');
 const { PDFParse } = require('pdf-parse');
@@ -171,8 +171,143 @@ router.post('/notices/add-domains', ensurePermission('notices.add_domains'), asy
   } finally {
     client.release();
   }
+});
+
+// Adiciona IPs a um ofício
+router.post('/notices/add-ips', ensurePermission('notices.add_domains'), async (req, res) => {
+  const noticeId = Number(req.body.noticeId);
+  const ipsRaw = req.body.ips || '';
+  const userId = req.session.user.id;
+  
+  if (!noticeId || !ipsRaw.trim()) {
+    return res.status(400).json({ error: 'Informe os IPs para bloquear/desbloquear.' });
   }
-);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const noticeCheck = await client.query("SELECT status, notice_type FROM notices WHERE id = $1", [noticeId]);
+    if (noticeCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Ofício não encontrado.' });
+    }
+    const notice = noticeCheck.rows[0];
+    
+    if (notice.status === 'informed') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Não é permitido adicionar IPs a um ofício já respondido.' });
+    }
+
+    const lines = ipsRaw.split(/\r?\n/).map(d => d.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Nenhum IP válido informado.' });
+    }
+
+    let validCount = 0;
+    let invalidCount = 0;
+    let registeredCount = 0;
+
+    for (const line of lines) {
+      if (!isValidIP(line)) {
+        invalidCount++;
+        await client.query(
+          `INSERT INTO ip_import_invalids (original_value, normalized_value, reason, created_by)
+           VALUES ($1, $2, $3, $4)`,
+          [line, line, 'Formato de IP inválido', userId]
+        );
+        continue;
+      }
+
+      const ip = line;
+      const ipType = isValidIPv4(ip) ? 'v4' : 'v6';
+      
+      if (notice.notice_type === 'unblock') {
+        await client.query(
+          `INSERT INTO ips (ip_address, ip_type, status, notice_id, is_active, created_by)
+           VALUES ($1, $2, 'blocked', $3, false, $4)
+           ON CONFLICT (ip_address) DO UPDATE 
+           SET is_active = false, notice_id = $3, updated_at = now()`,
+          [ip, ipType, noticeId, userId]
+        );
+        validCount++;
+      } else {
+        const insertResult = await client.query(
+          `INSERT INTO ips (ip_address, ip_type, status, notice_id, is_active, created_by)
+           VALUES ($1, $2, 'blocked', $3, true, $4)
+           ON CONFLICT (ip_address) DO UPDATE 
+           SET is_active = true, notice_id = $3, updated_at = now()
+           WHERE ips.is_active = false
+           RETURNING id`,
+          [ip, ipType, noticeId, userId]
+        );
+        
+        if (insertResult.rowCount > 0) {
+           validCount++;
+        } else {
+           registeredCount++;
+        }
+      }
+    }
+
+    if (validCount > 0) {
+      const newStatus = notice.notice_type === 'unblock' ? 'unblocked' : 'blocked';
+      await client.query(
+        "UPDATE notices SET status = $1 WHERE id = $2 AND status = 'registered'",
+        [newStatus, noticeId]
+      );
+    }
+
+    await client.query('COMMIT');
+    
+    await logAudit(pool, {
+      req,
+      action: notice.notice_type === 'unblock' ? 'notices.unblock_ips' : 'notices.add_ips',
+      details: {
+        noticeId,
+        validCount,
+        invalidCount,
+        registeredCount,
+        noticeType: notice.notice_type
+      },
+    });
+
+    return res.json({
+      success: true,
+      validCount,
+      invalidCount,
+      registeredCount,
+      noticeType: notice.notice_type
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Erro ao adicionar IPs:', error);
+    return res.status(500).json({ error: 'Erro interno ao processar os IPs.' });
+  } finally {
+    client.release();
+  }
+});
+
+// Verifica se IPs já existem no banco
+router.post('/ips/check-exists', ensureAuthenticated, async (req, res) => {
+  try {
+    const { ips } = req.body;
+    if (!Array.isArray(ips) || ips.length === 0) {
+      return res.json({ registered: [] });
+    }
+    const uniqueIps = [...new Set(ips)].slice(0, 500);
+    const result = await pool.query(
+      'SELECT ip_address FROM ips WHERE ip_address = ANY($1)',
+      [uniqueIps]
+    );
+    const registered = result.rows.map(r => r.ip_address);
+    return res.json({ registered });
+  } catch (error) {
+    console.error('Erro ao verificar IPs:', error);
+    return res.status(500).json({ error: 'Erro interno' });
+  }
+});
 
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 const reportsDir = path.join(__dirname, '..', 'reports');
@@ -983,10 +1118,18 @@ router.post('/notices/:id/inform', ensurePermission('notices.inform'), async (re
   }
 
   try {
-    // Verifica se o ofício tem domínios antes de permitir marcar como informado
-    const domainCheck = await pool.query("SELECT COUNT(*) as count FROM domains WHERE notice_id = $1", [noticeId]);
-    if (parseInt(domainCheck.rows[0].count) === 0) {
-      return res.status(400).json({ error: 'Não é permitido responder um ofício que não possui domínios cadastrados.' });
+    // Verifica se o ofício tem domínios ou IPs antes de permitir marcar como informado
+    const targetCheck = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM domains WHERE notice_id = $1) as domain_count,
+        (SELECT COUNT(*) FROM ips WHERE notice_id = $1) as ip_count
+    `, [noticeId]);
+    
+    const domainCount = parseInt(targetCheck.rows[0].domain_count || 0);
+    const ipCount = parseInt(targetCheck.rows[0].ip_count || 0);
+
+    if (domainCount === 0 && ipCount === 0) {
+      return res.status(400).json({ error: 'Não é permitido responder um ofício que não possui alvos (domínios ou IPs) cadastrados.' });
     }
 
     await pool.query(
@@ -1716,6 +1859,7 @@ router.get('/notices', ensurePermission('notices'), async (req, res) => {
               (SELECT username FROM users WHERE id = n.uploaded_by) as username,
               (SELECT username FROM users WHERE id = n.informed_by) as informer_username,
               COALESCE((SELECT COUNT(*) FROM domains d WHERE d.notice_id = n.id), 0) as total_domains,
+              COALESCE((SELECT COUNT(*) FROM ips i WHERE i.notice_id = n.id), 0) as total_ips,
               COALESCE(
                 (SELECT json_agg(json_build_object('id', nf.id, 'original_file_name', nf.original_file_name))
                  FROM notice_files nf WHERE nf.notice_id = n.id),

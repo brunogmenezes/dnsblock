@@ -180,15 +180,14 @@
           <table>
             <thead>
               <tr>
-                <th>Número do Ofício</th>
-                <th>Nome do Ofício</th>
-                <th>Tipo</th>
-                <th>Data de Cadastro</th>
-                <th>Cadastrado por</th>
-                <th>Total de Domínios</th>
-                <th>Status</th>
-                <th>Ações</th>
-                <!-- coluna Download removida -->
+                <th style="width: 140px;">Número do Ofício</th>
+                <th style="min-width: 200px;">Nome do Ofício / Anexos</th>
+                <th style="width: 110px; text-align: center;">Tipo</th>
+                <th style="width: 150px;">Cadastro</th>
+                <th style="width: 120px;">Por</th>
+                <th style="width: 100px; text-align: center;">Alvos</th>
+                <th style="width: 120px; text-align: center;">Status</th>
+                <th style="width: 220px; text-align: center;">Ações</th>
               </tr>
             </thead>
             <tbody id="notices-body">
@@ -201,19 +200,19 @@
                   <tr class="status-<%= notice.status || 'registered' %> data-row">
                     <td><%= notice.notice_code %></td>
                     <td>
-                      <div style="font-weight: 600; margin-bottom: 4px;" title="<%= notice.original_file_name %>">
+                      <div style="font-weight: 600; margin-bottom: 6px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<%= notice.original_file_name %>">
                         <%= notice.original_file_name %>
                       </div>
                       <% if (notice.files && notice.files.length > 0) { %>
-                        <div style="max-height: 80px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 2px; border: 1px solid transparent; transition: border-color 0.2s;" class="files-container">
+                        <div style="max-height: 60px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-soft);" class="files-container">
                           <% notice.files.forEach(function(file, idx) { %>
-                            <a href="/notices/<%= notice.id %>/download/<%= file.id %>" class="btn-secondary" style="font-size:0.85em; padding:2px 6px; white-space: nowrap; border-radius: 4px;" title="<%= file.original_file_name %>">
-                              <%= file.original_file_name.length > 20 ? file.original_file_name.slice(0, 17) + '...' : file.original_file_name %>
+                            <a href="/notices/<%= notice.id %>/download/<%= file.id %>" class="btn-secondary" style="font-size:0.75rem; padding:1px 6px; white-space: nowrap; border-radius: 4px; height: 22px; display: inline-flex; align-items: center;" title="<%= file.original_file_name %>">
+                              <%= file.original_file_name.length > 15 ? file.original_file_name.slice(0, 12) + '...' : file.original_file_name %>
                             </a>
                           <% }) %>
                         </div>
                       <% } else { %>
-                        <div style="opacity: 0.5; font-size: 0.85em; font-style: italic;">Nenhum anexo</div>
+                        <div style="opacity: 0.5; font-size: 0.8rem; font-style: italic;">Nenhum anexo</div>
                       <% } %>
                     </td>
                     <td style="text-align:center;">
@@ -223,9 +222,14 @@
                         <span class="badge" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size: 0.85rem;">Bloqueio</span>
                       <% } %>
                     </td>
-                    <td><%= new Date(notice.created_at).toLocaleString('pt-BR') %></td>
-                    <td><%= notice.username || '-' %></td>
-                    <td style="text-align:center;"><%= notice.total_domains %></td>
+                    <td style="font-size: 0.85rem;"><%= new Date(notice.created_at).toLocaleDateString('pt-BR') %><br><span style="opacity: 0.6; font-size: 0.8rem;"><%= new Date(notice.created_at).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}) %></span></td>
+                    <td style="font-size: 0.85rem; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><%= notice.username || '-' %></td>
+                    <td style="text-align:center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span title="Domínios" style="font-weight: 700; color: var(--brand); font-size: 0.9rem;"><%= notice.total_domains %><small style="font-weight: 400; opacity: 0.7;">d</small></span>
+                        <span title="IPs" style="font-weight: 700; color: #6366f1; font-size: 0.9rem;"><%= notice.total_ips %><small style="font-weight: 400; opacity: 0.7;">i</small></span>
+                      </div>
+                    </td>
                     <td style="text-align:center;">
                       <% if (notice.status === 'informed') { %>
                         <span class="badge badge-success" title="Respondido em: <%= notice.informed_at ? new Date(notice.informed_at).toLocaleString('pt-BR') : '-' %>">Respondido</span>
@@ -241,23 +245,28 @@
                       <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;align-items:center;">
                         <% if (notice.status !== 'informed') { %>
                           <div style="display:flex;gap:6px;flex-direction:column;width:100%;">
-                            <div style="display:flex;gap:6px;">
+                            <div style="display:flex;gap:4px;">
                               <% if (hasPermission('notices.add_domains')) { %>
                                 <button class="btn-primary btn-add-domains" 
                                         data-notice-id="<%= notice.id %>" 
                                         data-notice-code="<%= notice.notice_code %>"
                                         data-notice-type="<%= notice.notice_type || 'block' %>"
-                                        style="padding:4px 10px;font-size:0.98em;flex:1;">Domínios</button>
+                                        style="padding:4px 8px;font-size:0.8rem;flex:1;white-space:nowrap;">+ Domínios</button>
+                                <button class="btn-primary btn-add-ips" 
+                                        data-notice-id="<%= notice.id %>" 
+                                        data-notice-code="<%= notice.notice_code %>"
+                                        data-notice-type="<%= notice.notice_type || 'block' %>"
+                                        style="padding:4px 8px;font-size:0.8rem;flex:1;background:#6366f1;border-color:#6366f1;white-space:nowrap;">+ IPs</button>
                               <% } %>
                               <% if (hasPermission('notices.add_files')) { %>
-                                <button class="btn-secondary btn-add-files" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;flex:1;">Anexar</button>
+                                <button class="btn-secondary btn-add-files" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 8px;font-size:0.8rem;flex:0.8;white-space:nowrap;">Anexar</button>
                               <% } %>
                             </div>
                             <% if (hasPermission('notices.inform')) { %>
-                              <% if (notice.total_domains > 0) { %>
-                                <button class="btn-info btn-inform-notice" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.98em;background:var(--info);color:#fff;border-color:var(--info);width:100%;">Marcar Respondido</button>
+                              <% if (notice.total_domains > 0 || notice.total_ips > 0) { %>
+                                <button class="btn-info btn-inform-notice" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.8rem;background:var(--info);color:#fff;border-color:var(--info);width:100%;margin-top:4px;">Marcar Respondido</button>
                               <% } else { %>
-                                <span style="color: var(--muted); font-size: 0.8rem; font-style: italic;">Adicione domínios para responder</span>
+                                <span style="color: var(--muted); font-size: 0.75rem; font-style: italic; margin-top: 4px;">Adicione alvos para responder</span>
                               <% } %>
                             <% } %>
                           </div>
@@ -426,6 +435,85 @@
       </div>
     </div>
 
+    <!-- Modal de Alerta/Erro Moderno -->
+    <div id="modal-alert" class="modal" style="display:none;position:fixed;z-index:5000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+      <div class="modal-content" style="background:#fff;padding:32px 28px;border-radius:16px;width:90%;max-width:400px;box-shadow:var(--shadow-lg);position:relative;text-align:center;">
+        <div style="background:#fee2e2;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        </div>
+        <h3 id="modal-alert-title" style="margin:0 0 12px;font-size:1.3rem;font-weight:800;color:var(--text);">Atenção</h3>
+        <p id="modal-alert-message" style="margin:0 0 24px;color:var(--muted);font-size:1rem;line-height:1.5;"></p>
+        <button id="btn-alert-ok" class="btn-primary" style="width:100%;padding:12px;background:#ef4444;border-color:#ef4444;font-weight:700;border-radius:10px;">Entendido</button>
+      </div>
+    </div>
+
+    <!-- Modal para Adicionar IPs em Massa -->
+    <div id="modal-add-ips" class="modal" style="display:none;position:fixed;z-index:2000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:36px 28px 28px 28px;border-radius:12px;width:95%;max-width:900px;max-height:95vh;overflow-y:auto;box-shadow:0 4px 24px #0003;position:relative;">
+        <button id="close-modal-add-ips" style="position:absolute;top:10px;right:16px;background:none;border:none;font-size:1.7rem;cursor:pointer;">&times;</button>
+        <h2 id="modal-ips-title" style="margin-top:0;margin-bottom:20px;font-size:1.25rem;">Adicionar IPs ao Ofício <span id="modal-ips-notice-code" style="font-weight:600;"></span></h2>
+        
+        <form id="form-add-ips" class="form-stack">
+          <input type="hidden" id="input-ips-notice-id" />
+          
+          <div style="display:grid;grid-template-columns:1fr 320px;gap:24px;">
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <label for="input-ips" style="font-weight:600;display:block;margin-bottom:4px;">IPs (um por linha):</label>
+              <p id="modal-ips-instructions" style="font-size:0.85rem;color:var(--muted);margin-bottom:8px;">Cole aqui a lista de endereços IPv4 ou IPv6.</p>
+              <textarea id="input-ips" placeholder="Ex:&#10;104.21.18.162&#10;2606:4700:3032::6815:386d" style="height:350px;font-family:monospace;padding:12px;font-size:0.95rem;line-height:1.4;border:1px solid var(--line);border-radius:var(--radius-md);"></textarea>
+            </div>
+            
+            <div style="background:var(--bg-soft);padding:24px;border-radius:var(--radius-md);display:flex;flex-direction:column;gap:20px;height:fit-content;">
+              <h4 style="margin:0;font-size:0.9rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);">Resumo da Validação</h4>
+              
+              <div style="display:flex;flex-direction:column;gap:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span id="stat-ips-valid-label" style="font-size:0.9rem;font-weight:600;color:var(--success);">Válidos</span>
+                  <span id="stat-ips-valid" style="font-size:1.1rem;font-weight:800;color:var(--success);">0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.9rem;font-weight:600;color:var(--danger);">Inválidos</span>
+                  <span id="stat-ips-invalid" style="font-size:1.1rem;font-weight:800;color:var(--danger);">0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:12px;">
+                  <span style="font-size:0.9rem;font-weight:600;color:var(--info);">Já Cadastrados</span>
+                  <span id="stat-ips-exists" style="font-size:1.1rem;font-weight:800;color:var(--info);">0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:12px;border-radius:8px;border:1px solid var(--line);margin-top:8px;">
+                  <span style="font-size:0.95rem;font-weight:700;">Novos para Processar</span>
+                  <span id="stat-ips-total" style="font-size:1.2rem;font-weight:900;color:var(--brand);">0</span>
+                </div>
+              </div>
+
+              <p style="font-size:0.8rem;color:var(--muted);line-height:1.5;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;margin-right:4px;vertical-align:middle;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                A validação é feita em tempo real conforme você digita.
+              </p>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:12px;margin-top:32px;justify-content:flex-end;border-top:1px solid var(--line);padding-top:24px;">
+            <button type="button" id="cancel-modal-add-ips" class="btn-secondary" style="padding:10px 24px;">Cancelar</button>
+            <button type="submit" id="btn-submit-ips" class="btn-primary" style="padding:10px 32px; background:#6366f1; border-color:#6366f1;">Processar IPs</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal de Resultado de Inserção de IPs -->
+    <div id="modal-result-ips" class="modal" style="display:none;position:fixed;z-index:3000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+      <div class="modal-content" style="background:#fff;padding:32px 28px;border-radius:12px;width:95%;max-width:400px;box-shadow:var(--shadow-lg);position:relative;text-align:center;animation:modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <h2 style="margin-top:0;margin-bottom:16px;font-size:1.4rem;">Resultado da Inserção</h2>
+        <p style="margin-bottom:8px;"><strong>Ofício:</strong> <span id="result-ips-notice-code"></span></p>
+        <div style="display:flex;flex-direction:column;gap:8px;text-align:left;background:var(--bg-soft);padding:16px;border-radius:8px;margin-bottom:24px;">
+           <div style="display:flex;justify-content:space-between;"><span id="result-ips-valid-label" style="color:var(--success);font-weight:600;">Válidos Processados:</span> <span id="result-ips-valid" style="font-weight:700;"></span></div>
+           <div style="display:flex;justify-content:space-between;"><span style="color:var(--danger);font-weight:600;">Inválidos Ignorados:</span> <span id="result-ips-invalid" style="font-weight:700;"></span></div>
+           <div style="display:flex;justify-content:space-between;"><span style="color:var(--info);font-weight:600;">Já Cadastrados:</span> <span id="result-ips-exists" style="font-weight:700;"></span></div>
+        </div>
+        <button id="btn-ok-result-ips" class="btn-primary" style="width:100%;padding:10px; background:#6366f1; border-color:#6366f1;">OK</button>
+      </div>
+    </div>
+
     <!-- Elementos para Extração de PDF -->
     <div id="modal-pdf-review" class="modal" style="display:none;position:fixed;z-index:3000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;backdrop-filter:blur(2px);">
       <div class="modal-content" style="background:#fff;padding:28px;border-radius:16px;width:90%;max-width:480px;box-shadow:var(--shadow-lg);position:relative;">
@@ -456,6 +544,9 @@
     </div>
 
     <script>
+            const IP_REGEX_V4 = /^(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+            const IP_REGEX_V6 = /^(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}$|^(?:[A-F0-9]{1,4}:){1,7}:|^(?:[A-F0-9]{1,4}:){1,6}:[A-F0-9]{1,4}$|^(?:[A-F0-9]{1,4}:){1,5}(?::[A-F0-9]{1,4}){1,2}$|^(?:[A-F0-9]{1,4}:){1,4}(?::[A-F0-9]{1,4}){1,3}$|^(?:[A-F0-9]{1,4}:){1,3}(?::[A-F0-9]{1,4}){1,4}$|^(?:[A-F0-9]{1,4}:){1,2}(?::[A-F0-9]{1,4}){1,5}$|^[A-F0-9]{1,4}:(?::[A-F0-9]{1,4}){1,6}$|^:(?::[A-F0-9]{1,4}){1,7}$|^:$/i;
+
             const modalAddDomains = document.getElementById('modal-add-domains');
             const closeModalAddDomains = document.getElementById('close-modal-add-domains');
             const cancelModalAddDomains = document.getElementById('cancel-modal-add-domains');
@@ -468,7 +559,22 @@
             const statInvalid = document.getElementById('stat-invalid');
             const statExists = document.getElementById('stat-exists');
             const statTotal = document.getElementById('stat-total');
+
+            // IP Modal Elements
+            const modalAddIps = document.getElementById('modal-add-ips');
+            const closeModalAddIps = document.getElementById('close-modal-add-ips');
+            const cancelModalAddIps = document.getElementById('cancel-modal-add-ips');
+            const formAddIps = document.getElementById('form-add-ips');
+            const inputIpsNoticeId = document.getElementById('input-ips-notice-id');
+            const inputIps = document.getElementById('input-ips');
+            const modalIpsNoticeCode = document.getElementById('modal-ips-notice-code');
+            const statIpsValid = document.getElementById('stat-ips-valid');
+            const statIpsInvalid = document.getElementById('stat-ips-invalid');
+            const statIpsExists = document.getElementById('stat-ips-exists');
+            const statIpsTotal = document.getElementById('stat-ips-total');
+
             let validationTimeout;
+            let validationIpsTimeout;
 
             const DOMAIN_REGEX = /^(?=.{1,253}$)(?!.*\.\.)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/;
 
@@ -561,7 +667,7 @@
                 const data = await response.json();
 
                 if (!response.ok) {
-                  alert(data.error || 'Erro ao inserir domínios.');
+                  showAppAlert('Não permitido', data.error || 'Erro ao inserir domínios.');
                   submitBtn.textContent = originalBtnText;
                   submitBtn.disabled = false;
                   return;
@@ -587,7 +693,7 @@
                 modalResultDomains.style.display = 'flex';
 
               } catch (error) {
-                alert('Erro na comunicação com o servidor.');
+                showAppAlert('Erro', 'Erro na comunicação com o servidor.');
               } finally {
                 submitBtn.textContent = originalBtnText;
                 submitBtn.disabled = false;
@@ -650,6 +756,168 @@
             closeModalAddDomains.onclick = cancelModalAddDomains.onclick = function() {
               modalAddDomains.style.display = 'none';
               formAddDomains.reset();
+            };
+
+            // --- IP Management Logic ---
+            function isValidIPLocal(ip) {
+              return IP_REGEX_V4.test(ip) || IP_REGEX_V6.test(ip);
+            }
+
+            async function validateIps() {
+              const text = inputIps.value;
+              const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+              
+              let validCount = 0;
+              let invalidCount = 0;
+              const validList = [];
+              
+              lines.forEach(line => {
+                if (isValidIPLocal(line)) {
+                  validCount++;
+                  validList.push(line);
+                } else {
+                  invalidCount++;
+                }
+              });
+
+              statIpsValid.textContent = validCount;
+              statIpsInvalid.textContent = invalidCount;
+              statIpsTotal.textContent = validCount;
+
+              if (validList.length > 0) {
+                try {
+                  const res = await fetch('/ips/check-exists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ips: validList })
+                  });
+                  const data = await res.json();
+                  const registeredCount = data.registered ? data.registered.length : 0;
+                  statIpsExists.textContent = registeredCount;
+                  statIpsTotal.textContent = validCount - registeredCount;
+                } catch (e) {
+                  statIpsExists.textContent = '0';
+                  statIpsTotal.textContent = validCount;
+                }
+              } else {
+                statIpsExists.textContent = '0';
+                statIpsTotal.textContent = '0';
+              }
+            }
+
+            inputIps.oninput = function() {
+              clearTimeout(validationIpsTimeout);
+              validationIpsTimeout = setTimeout(validateIps, 400);
+            };
+
+            const modalResultIps = document.getElementById('modal-result-ips');
+            const resultIpsNoticeCode = document.getElementById('result-ips-notice-code');
+            const resultIpsValid = document.getElementById('result-ips-valid');
+            const resultIpsInvalid = document.getElementById('result-ips-invalid');
+            const resultIpsExists = document.getElementById('result-ips-exists');
+            const btnOkResultIps = document.getElementById('btn-ok-result-ips');
+
+            formAddIps.onsubmit = async function(e) {
+              e.preventDefault();
+              
+              const noticeId = inputIpsNoticeId.value;
+              const ips = inputIps.value;
+              const noticeCode = modalIpsNoticeCode.textContent;
+
+              const submitBtn = formAddIps.querySelector('button[type="submit"]');
+              const originalBtnText = submitBtn.textContent;
+              submitBtn.textContent = 'Aguarde...';
+              submitBtn.disabled = true;
+
+              try {
+                const response = await fetch('/notices/add-ips', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ noticeId, ips })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                  showAppAlert('Não permitido', data.error || 'Erro ao inserir IPs.');
+                  submitBtn.textContent = originalBtnText;
+                  submitBtn.disabled = false;
+                  return;
+                }
+
+                modalAddIps.style.display = 'none';
+                formAddIps.reset();
+
+                resultIpsNoticeCode.textContent = noticeCode;
+                resultIpsValid.textContent = data.validCount || 0;
+                resultIpsInvalid.textContent = data.invalidCount || 0;
+                resultIpsExists.textContent = data.registeredCount || 0;
+                
+                const resultIpsValidLabel = document.getElementById('result-ips-valid-label');
+                if (data.noticeType === 'unblock') {
+                  resultIpsValidLabel.textContent = 'Válidos Desbloqueados:';
+                } else {
+                  resultIpsValidLabel.textContent = 'Válidos Inseridos:';
+                }
+
+                modalResultIps.style.display = 'flex';
+
+              } catch (error) {
+                showAppAlert('Erro', 'Erro na comunicação com o servidor.');
+              } finally {
+                submitBtn.textContent = originalBtnText;
+                submitBtn.disabled = false;
+              }
+            };
+
+            btnOkResultIps.onclick = function() {
+              modalResultIps.style.display = 'none';
+              window.location.reload();
+            };
+
+            document.querySelectorAll('.btn-add-ips').forEach(btn => {
+              btn.onclick = function() {
+                const noticeId = btn.getAttribute('data-notice-id');
+                const noticeCode = btn.getAttribute('data-notice-code');
+                const noticeType = btn.getAttribute('data-notice-type') || 'block';
+                
+                inputIpsNoticeId.value = noticeId;
+                modalIpsNoticeCode.textContent = noticeCode;
+                inputIps.value = '';
+                statIpsValid.textContent = '0';
+                statIpsInvalid.textContent = '0';
+                statIpsExists.textContent = '0';
+                statIpsTotal.textContent = '0';
+                
+                const modalTitle = document.getElementById('modal-ips-title');
+                const instructions = document.getElementById('modal-ips-instructions');
+                const btnSubmit = document.getElementById('btn-submit-ips');
+                const statValidLabel = document.getElementById('stat-ips-valid-label');
+
+                if (noticeType === 'unblock') {
+                  modalTitle.textContent = 'Desbloquear IPs via Ofício';
+                  instructions.innerHTML = 'Cole os IPs para desbloquear <span style="font-weight:400;color:var(--muted);">(procurará na base atual)</span>';
+                  btnSubmit.textContent = 'Desbloquear IPs';
+                  btnSubmit.style.background = 'var(--info)';
+                  btnSubmit.style.borderColor = 'var(--info)';
+                  statValidLabel.textContent = 'Para Desbloquear';
+                } else {
+                  modalTitle.textContent = 'Adicionar IPs ao Ofício';
+                  instructions.innerHTML = 'IPs para bloquear <span style="font-weight:400;color:var(--muted);">(um por linha)</span>';
+                  btnSubmit.textContent = 'Bloquear IPs';
+                  btnSubmit.style.background = '#6366f1';
+                  btnSubmit.style.borderColor = '#6366f1';
+                  statValidLabel.textContent = 'Válidos';
+                }
+
+                modalAddIps.style.display = 'flex';
+                setTimeout(() => inputIps.focus(), 100);
+              };
+            });
+
+            closeModalAddIps.onclick = cancelModalAddIps.onclick = function() {
+              modalAddIps.style.display = 'none';
+              formAddIps.reset();
             };
 
             // --- PDF Extraction Logic ---
@@ -777,7 +1045,7 @@
                   throw new Error(data.error || 'Erro ao extrair domínios.');
                 }
               } catch (err) {
-                alert(err.message);
+                showAppAlert('Erro de Extração', err.message);
                 closePdfModal();
               } finally {
                 pdfLoadingOverlay.style.display = 'none';
@@ -840,15 +1108,33 @@
                   window.location.reload();
                 } else {
                   const data = await response.json();
-                  alert(data.error || 'Erro ao atualizar status do ofício.');
+                  showAppAlert('Não permitido', data.error || 'Erro ao atualizar status do ofício.');
                 }
               } catch (error) {
-                alert('Erro na comunicação com o servidor.');
+                showAppAlert('Erro', 'Erro na comunicação com o servidor.');
               } finally {
                 submitBtn.textContent = originalBtnText;
                 submitBtn.disabled = false;
               }
             };
+
+            // Função Global para Alertas
+            const modalAppAlert = document.getElementById('modal-alert');
+            const modalAlertTitle = document.getElementById('modal-alert-title');
+            const modalAlertMessage = document.getElementById('modal-alert-message');
+            const btnAlertOk = document.getElementById('btn-alert-ok');
+
+            function showAppAlert(title, message) {
+              modalAlertTitle.textContent = title;
+              modalAlertMessage.textContent = message;
+              modalAppAlert.style.display = 'flex';
+            }
+
+            btnAlertOk.onclick = function() {
+              modalAppAlert.style.display = 'none';
+            };
+
+            window.showAppAlert = showAppAlert;
 
             // Modal de anexar arquivos
             const modalAddFiles = document.getElementById('modal-add-files');

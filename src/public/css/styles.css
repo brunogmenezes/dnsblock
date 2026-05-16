@@ -557,7 +557,7 @@ table {
 }
 
 th, td {
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   font-size: 0.9rem;
