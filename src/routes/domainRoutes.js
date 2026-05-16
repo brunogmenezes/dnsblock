@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
+const XLSX = require('xlsx');
 const { ensureAuthenticated, ensurePermission } = require('../middlewares/auth');
 const pool = require('../config/db');
 const { isValidDomain, normalizeDomain } = require('../services/domainValidator');
@@ -47,27 +48,37 @@ router.post('/notices/add-domains', ensurePermission('notices.add_domains'), asy
     return res.status(400).json({ error: 'Informe os domínios para bloquear.' });
   }
 
+  const client = await pool.connect();
   try {
-    // Verifica se o ofício já foi informado
-    const noticeCheck = await pool.query("SELECT status FROM notices WHERE id = $1", [noticeId]);
-    if (noticeCheck.rows.length > 0 && noticeCheck.rows[0].status === 'informed') {
+    await client.query('BEGIN');
+    
+    const noticeCheck = await client.query("SELECT status, notice_type FROM notices WHERE id = $1", [noticeId]);
+    if (noticeCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Ofício não encontrado.' });
+    }
+    const notice = noticeCheck.rows[0];
+    
+    if (notice.status === 'informed') {
+      await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Não é permitido adicionar domínios a um ofício já respondido.' });
     }
 
     const lines = domainsRaw.split(/\r?\n/).map(d => d.trim()).filter(Boolean);
     if (lines.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Nenhum domínio válido informado.' });
     }
 
     let validCount = 0;
     let invalidCount = 0;
     let registeredCount = 0;
+    let changedAny = false;
 
     for (const line of lines) {
       if (!isValidDomain(line)) {
         invalidCount++;
-        // Continua registrando os inválidos no banco para revisão, se desejar, mas ignora na inserção final
-        await pool.query(
+        await client.query(
           `INSERT INTO domain_import_invalids (original_value, normalized_value, reason, created_by)
            VALUES ($1, $2, $3, $4)`,
           [line, normalizeDomain(line), 'Formato de domínio inválido', userId]
@@ -77,51 +88,89 @@ router.post('/notices/add-domains', ensurePermission('notices.add_domains'), asy
 
       const domain = normalizeDomain(line);
       
-      const insertResult = await pool.query(
-        `INSERT INTO domains (domain_name, status, blocked_at, notice_id, is_active, created_by)
-         VALUES ($1, 'blocked', now(), $2, true, $3)
-         ON CONFLICT (domain_name) DO NOTHING
-         RETURNING id`,
-        [domain, noticeId, userId]
-      );
-      
-      if (insertResult.rowCount === 0) {
-        registeredCount++;
-      } else {
+      if (notice.notice_type === 'unblock') {
+        // No caso de desbloqueio:
+        // 1. Se não existe, insere como inativo vinculado a este ofício
+        // 2. Se existe e está ativo, desativa e vincula a este ofício
+        // 3. Se existe e já está inativo, apenas vincula a este ofício (para histórico)
+        const unblockResult = await client.query(
+          `INSERT INTO domains (domain_name, status, blocked_at, notice_id, is_active, created_by)
+           VALUES ($1, 'blocked', now(), $2, false, $3)
+           ON CONFLICT (domain_name) DO UPDATE 
+           SET is_active = false, notice_id = $2, updated_at = now()
+           RETURNING id, is_active`,
+          [domain, noticeId, userId]
+        );
+        
+        // Consideramos que "mudou algo" se o domínio estava ativo antes do update
+        // Como o INSERT/UPDATE retornam o novo estado (sempre false aqui), precisamos de uma forma de saber o estado anterior
+        // Simplificando: vamos sempre marcar como alterado se o comando afetou algo e validCount cresce
         validCount++;
+        changedAny = true; 
+      } else {
+        // No caso de bloqueio:
+        // 1. Se não existe, insere como ativo
+        // 2. Se existe e está inativo, reativa e vincula a este ofício
+        // 3. Se existe e já está ativo, apenas conta como registrado
+        const insertResult = await client.query(
+          `INSERT INTO domains (domain_name, status, blocked_at, notice_id, is_active, created_by)
+           VALUES ($1, 'blocked', now(), $2, true, $3)
+           ON CONFLICT (domain_name) DO UPDATE 
+           SET is_active = true, notice_id = $2, updated_at = now()
+           WHERE domains.is_active = false
+           RETURNING id, (xmax = 0) AS inserted`,
+          [domain, noticeId, userId]
+        );
+        
+        if (insertResult.rowCount > 0) {
+           validCount++;
+           changedAny = true;
+        } else {
+           registeredCount++;
+        }
       }
     }
 
-    // Se houve inserção de domínios válidos, atualiza o status do ofício para 'blocked'
     if (validCount > 0) {
-      await pool.query(
-        "UPDATE notices SET status = 'blocked' WHERE id = $1 AND status = 'registered'",
-        [noticeId]
+      const newStatus = notice.notice_type === 'unblock' ? 'unblocked' : 'blocked';
+      await client.query(
+        "UPDATE notices SET status = $1 WHERE id = $2 AND status = 'registered'",
+        [newStatus, noticeId]
       );
     }
 
-      await logAudit(pool, {
-        req,
-        action: 'notices.add_domains',
-        details: {
-          noticeId,
-          validCount,
-          invalidCount,
-          registeredCount,
-          statusUpdatedTo: validCount > 0 ? 'blocked' : null
-        },
-      });
+    if (changedAny) {
+      await createNextBlocklistVersion(client, userId, notice.notice_type === 'unblock' ? 'unblock-by-notice' : 'block-by-notice');
+    }
 
-      return res.json({
-        success: true,
+    await client.query('COMMIT');
+
+    await logAudit(pool, {
+      req,
+      action: notice.notice_type === 'unblock' ? 'notices.unblock_domains' : 'notices.add_domains',
+      details: {
+        noticeId,
         validCount,
         invalidCount,
-        registeredCount
-      });
-    } catch (error) {
-      console.error('Erro ao adicionar domínios:', error);
-      return res.status(500).json({ error: 'Erro interno ao processar domínios.' });
-    }
+        registeredCount,
+        noticeType: notice.notice_type
+      },
+    });
+
+    return res.json({
+      success: true,
+      validCount,
+      invalidCount,
+      registeredCount,
+      noticeType: notice.notice_type
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Erro ao processar domínios do ofício:', error);
+    return res.status(500).json({ error: 'Erro interno ao processar domínios.' });
+  } finally {
+    client.release();
+  }
   }
 );
 
@@ -804,6 +853,7 @@ router.post(
     const noticeName = fixEncoding(req.body.noticeName || '').trim();
     const blockStartDate = req.body.blockStartDate ? req.body.blockStartDate : null;
     const blockEndDate = req.body.blockEndDate ? req.body.blockEndDate : null;
+    const noticeType = req.body.noticeType || 'block';
     const files = req.files;
 
     if (!noticeCode || !noticeName) {
@@ -819,8 +869,8 @@ router.post(
 
     try {
       const noticeResult = await pool.query(
-        `INSERT INTO notices (notice_code, original_file_name, uploaded_by, block_start_date, block_end_date) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [noticeCode, noticeName, req.session.user.id, blockStartDate, blockEndDate]
+        `INSERT INTO notices (notice_code, original_file_name, uploaded_by, block_start_date, block_end_date, notice_type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [noticeCode, noticeName, req.session.user.id, blockStartDate, blockEndDate, noticeType]
       );
       
       const newNoticeId = noticeResult.rows[0].id;
@@ -1662,7 +1712,7 @@ router.get('/notices', ensurePermission('notices'), async (req, res) => {
   const [dataResult, statsResult] = await Promise.all([
     pool.query(
       `SELECT n.id, n.notice_code, n.original_file_name, n.created_at, n.uploaded_by, n.id as notice_id,
-              n.status, n.informed_at, n.informed_by,
+              n.status, n.informed_at, n.informed_by, n.notice_type,
               (SELECT username FROM users WHERE id = n.uploaded_by) as username,
               (SELECT username FROM users WHERE id = n.informed_by) as informer_username,
               COALESCE((SELECT COUNT(*) FROM domains d WHERE d.notice_id = n.id), 0) as total_domains,
@@ -1680,6 +1730,7 @@ router.get('/notices', ensurePermission('notices'), async (req, res) => {
       `SELECT 
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE status = 'blocked') as blocked,
+        COUNT(*) FILTER (WHERE status = 'unblocked') as unblocked,
         COUNT(*) FILTER (WHERE status = 'informed') as informed
        FROM notices`
     )
@@ -1698,6 +1749,7 @@ router.get('/notices', ensurePermission('notices'), async (req, res) => {
     totals: {
       total: Number(stats.total || 0),
       blocked: Number(stats.blocked || 0),
+      unblocked: Number(stats.unblocked || 0),
       informed: Number(stats.informed || 0)
     }
   });
@@ -1810,11 +1862,24 @@ router.post('/api/domains/extract-from-attachment', ensurePermission('dashboard'
     const filePath = path.join(uploadsDir, fileRes.rows[0].stored_file_name);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Arquivo físico não encontrado no servidor.' });
 
-    const dataBuffer = fs.readFileSync(filePath);
-    const parser = new PDFParse({ data: dataBuffer });
-    const data = await parser.getText();
-    let text = data.text;
-    await parser.destroy();
+    let text = '';
+    const isExcel = fileRes.rows[0].original_file_name.toLowerCase().endsWith('.xlsx') || 
+                  fileRes.rows[0].original_file_name.toLowerCase().endsWith('.xls');
+
+    if (isExcel) {
+      const workbook = XLSX.readFile(filePath);
+      // Extrai texto de todas as planilhas
+      workbook.SheetNames.forEach(sheetName => {
+        const worksheet = workbook.Sheets[sheetName];
+        text += XLSX.utils.sheet_to_txt(worksheet) + '\n';
+      });
+    } else {
+      const dataBuffer = fs.readFileSync(filePath);
+      const parser = new PDFParse({ data: dataBuffer });
+      const data = await parser.getText();
+      text = data.text;
+      await parser.destroy();
+    }
 
     // Inteligência para lidar com quebras de linha no meio de domínios (comum em tabelas de PDF)
     text = text.replace(/([a-z0-9.-])\n\s*([a-z0-9.-])/gi, '$1$2');

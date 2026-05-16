@@ -52,7 +52,7 @@ async function extractDomainsWithAI(text) {
 
   const prompt = `
     Você é um assistente especializado em segurança cibernética e análise de documentos jurídicos.
-    Abaixo está o conteúdo extraído de um PDF oficial (ofício judicial/policial).
+    Abaixo está o conteúdo extraído de um documento oficial (PDF ou Planilha).
     
     Sua tarefa:
     1. Identificar todos os domínios de internet (URLs/Links) destinados ao BLOQUEIO.
