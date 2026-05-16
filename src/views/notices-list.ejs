@@ -225,9 +225,13 @@
                     <td style="font-size: 0.85rem;"><%= new Date(notice.created_at).toLocaleDateString('pt-BR') %><br><span style="opacity: 0.6; font-size: 0.8rem;"><%= new Date(notice.created_at).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}) %></span></td>
                     <td style="font-size: 0.85rem; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><%= notice.username || '-' %></td>
                     <td style="text-align:center;">
-                      <div style="display: flex; flex-direction: column; gap: 2px;">
-                        <span title="Domínios" style="font-weight: 700; color: var(--brand); font-size: 0.9rem;"><%= notice.total_domains %><small style="font-weight: 400; opacity: 0.7;">d</small></span>
-                        <span title="IPs" style="font-weight: 700; color: #6366f1; font-size: 0.9rem;"><%= notice.total_ips %><small style="font-weight: 400; opacity: 0.7;">i</small></span>
+                      <div style="display: flex; flex-direction: column; gap: 2px; align-items: center;">
+                        <div style="font-size: 0.75rem; color: var(--brand); font-weight: 700; white-space: nowrap;">
+                          <%= notice.total_domains %> <span style="font-weight: 400; opacity: 0.8;">Domínios</span>
+                        </div>
+                        <div style="font-size: 0.75rem; color: #6366f1; font-weight: 700; white-space: nowrap;">
+                          <%= notice.total_ips %> <span style="font-weight: 400; opacity: 0.8;">IPs</span>
+                        </div>
                       </div>
                     </td>
                     <td style="text-align:center;">
