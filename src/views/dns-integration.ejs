@@ -25,17 +25,21 @@
             <h3>Integração DNS com Token</h3>
             <p class="helper-text token-section-text">Gerencie o acesso do servidor DNS aos endpoints Node sem misturar essa configuração com o restante do dashboard.</p>
           </div>
-          <div class="token-actions">
+          <div class="token-actions" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <a href="/dns/blocklist/download" class="btn-info" style="text-decoration: none; padding: 10px 18px; border-radius: var(--radius-sm); font-weight: 600; font-size: 0.9rem; display: inline-flex; justify-content: center; align-items: center; transition: var(--transition);">
+              Baixar dnsblock.conf
+            </a>
             <form
               method="post"
               action="/dns/tokens/generate"
               data-confirm="<%= activeDnsApiToken ? 'Gerar um novo token vai revogar imediatamente o token atual do DNS. Deseja continuar?' : 'Gerar um novo token para o servidor DNS?' %>"
               data-destructive="<%= activeDnsApiToken ? 'true' : 'false' %>"
+              style="margin: 0;"
             >
               <button type="submit" class="btn-primary"><%= activeDnsApiToken ? 'Gerar novo token' : 'Gerar token DNS' %></button>
             </form>
             <% if (activeDnsApiToken) { %>
-              <form method="post" action="/dns/tokens/revoke" data-confirm="Revogar o token atual vai bloquear o acesso do cron DNS até que um novo token seja gerado. Deseja revogar?" data-destructive="true">
+              <form method="post" action="/dns/tokens/revoke" data-confirm="Revogar o token atual vai bloquear o acesso do cron DNS até que um novo token seja gerado. Deseja revogar?" data-destructive="true" style="margin: 0;">
                 <button type="submit" class="btn-danger">Revogar token</button>
               </form>
             <% } %>

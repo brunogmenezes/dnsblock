@@ -410,6 +410,49 @@
           </div>
         </section>
 
+        <!-- Whitelist Section -->
+        <section class="table-section whitelist-card" style="margin-top: 32px;">
+          <div class="table-header">
+            <h3>Whitelist (Domínios Permitidos)</h3>
+            <p class="subtitle-modern">Domínios nesta lista nunca serão bloqueados e serão automaticamente desconsiderados.</p>
+          </div>
+          <div class="table-controls" style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+            <% if (hasPermission('whitelist.manage')) { %>
+              <form id="whitelist-add-form" style="display: flex; gap: 8px; flex: 1; min-width: 300px; margin: 0;">
+                <input type="text" id="whitelist-domain-input" placeholder="Adicionar domínio à whitelist (ex: google.com)..." required style="flex: 1; margin: 0;" />
+                <button type="submit" class="btn-primary" style="padding: 10px 20px; white-space: nowrap;">Adicionar</button>
+              </form>
+            <% } %>
+            <input type="text" id="whitelist-search" placeholder="Buscar na whitelist..." style="width: 250px; margin: 0;" />
+          </div>
+          <div class="table-container">
+            <table class="table-compact" id="whitelist-table">
+              <thead>
+                <tr>
+                  <th>Domínio</th>
+                  <th>Adicionado Por</th>
+                  <th>Data de Inclusão</th>
+                  <% if (hasPermission('whitelist.manage')) { %>
+                    <th style="text-align: center;">Ações</th>
+                  <% } %>
+                </tr>
+              </thead>
+              <tbody id="whitelist-body">
+                <!-- Loaded via AJAX -->
+              </tbody>
+            </table>
+          </div>
+          <div class="pane-pagination">
+            <button class="btn-icon" id="whitelist-prev" disabled title="Anterior">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <span class="page-indicator" id="whitelist-page-info">Pág. 1</span>
+            <button class="btn-icon" id="whitelist-next" disabled title="Próxima">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+        </section>
+
         <% if (hasPermission('notices.delete_full') || hasPermission('domains.delete')) { %>
         <section class="table-section danger-zone-section" style="border-color: #fee2e2; background: #fff5f5; margin-top: 32px;">
           <div class="table-header">
@@ -438,11 +481,13 @@
         // --- Dashboard State & Constants ---
         const hasPermDomainsDelete = <%= hasPermission('domains.delete') %>;
         const hasPermNoticesDelete = <%= hasPermission('notices.delete_full') %>;
+        const hasPermWhitelistManage = <%= hasPermission('whitelist.manage') %>;
 
         const state = {
           notices: { page: 1, limit: 10, total: 0, search: '', activeId: null },
           domains: { page: 1, limit: 50, total: 0, search: '', noticeId: null },
-          global: { page: 1, limit: 10, total: 0, search: '' }
+          global: { page: 1, limit: 10, total: 0, search: '' },
+          whitelist: { page: 1, limit: 10, total: 0, search: '' }
         };
 
         // --- Utility Functions ---
@@ -711,6 +756,7 @@
               loadNotices();
               if (state.domains.noticeId) loadDomains();
               loadGlobal();
+              loadWhitelist();
               const msg = resData.message || 'Operação concluída com sucesso.';
               if (window.showToast) window.showToast(msg, 'success');
               else alert(msg);
@@ -754,11 +800,115 @@
         document.getElementById('global-prev').onclick = () => { state.global.page--; loadGlobal(); };
         document.getElementById('global-next').onclick = () => { state.global.page++; loadGlobal(); };
 
+        // --- Whitelist AJAX Functions & Event Listeners ---
+        async function loadWhitelist() {
+          const tbody = document.getElementById('whitelist-body');
+          if (!tbody) return;
+          tbody.innerHTML = '<tr><td colspan="' + (hasPermWhitelistManage ? 4 : 3) + '" style="text-align: center; padding: 20px;">Buscando whitelist...</td></tr>';
+
+          try {
+            const res = await fetch(`/api/whitelist?page=${state.whitelist.page}&limit=${state.whitelist.limit}&search=${encodeURIComponent(state.whitelist.search)}`);
+            const data = await res.json();
+            state.whitelist.total = data.total;
+            
+            if (data.domains.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="' + (hasPermWhitelistManage ? 4 : 3) + '" style="text-align: center; padding: 20px;">Nenhum domínio na whitelist.</td></tr>';
+            } else {
+              tbody.innerHTML = data.domains.map(d => `
+                <tr>
+                  <td><strong>${d.domain_name}</strong></td>
+                  <td><span class="badge" style="background: var(--bg-soft); color: var(--text);">${d.created_by_name || 'Desconhecido'}</span></td>
+                  <td>${formatDate(d.created_at)}</td>
+                  ${hasPermWhitelistManage ? `
+                    <td style="text-align: center;">
+                      <div class="action-buttons">
+                        <form method="post" action="/api/whitelist/delete" class="delete-form" data-confirm="Remover domínio ${d.domain_name} da whitelist?" style="margin:0;">
+                          <input type="hidden" name="domainName" value="${d.domain_name}" />
+                          <button type="submit" class="btn-danger" title="Remover da Whitelist" style="padding: 4px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                          </button>
+                        </form>
+                      </div>
+                    </td>
+                  ` : ''}
+                </tr>
+              `).join('');
+            }
+            updatePagination('whitelist', state.whitelist);
+          } catch (err) {
+            tbody.innerHTML = '<tr><td colspan="' + (hasPermWhitelistManage ? 4 : 3) + '" style="text-align: center; color: var(--danger); padding: 20px;">Erro ao carregar whitelist.</td></tr>';
+          }
+        }
+
+        const whitelistForm = document.getElementById('whitelist-add-form');
+        if (whitelistForm) {
+          whitelistForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('whitelist-domain-input');
+            const domainName = input.value.trim();
+            if (!domainName) return;
+
+            const submitBtn = whitelistForm.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Enviando...';
+
+            try {
+              const res = await fetch('/api/whitelist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ domainName })
+              });
+              const resData = await res.json();
+              if (res.ok) {
+                input.value = '';
+                if (window.showToast) window.showToast(resData.message || 'Adicionado com sucesso!', 'success');
+                else alert(resData.message);
+                state.whitelist.page = 1;
+                loadWhitelist();
+                loadNotices();
+                if (state.domains.noticeId) loadDomains();
+                loadGlobal();
+              } else {
+                const err = resData.error || 'Erro ao adicionar domínio.';
+                if (window.showToast) window.showToast(err, 'error');
+                else alert(err);
+              }
+            } catch (err) {
+              console.error(err);
+              if (window.showToast) window.showToast('Erro de rede ou conexão.', 'error');
+              else alert('Erro de rede.');
+            } finally {
+              submitBtn.disabled = false;
+              submitBtn.textContent = originalText;
+            }
+          });
+        }
+
+        const whitelistSearchInput = document.getElementById('whitelist-search');
+        if (whitelistSearchInput) {
+          whitelistSearchInput.addEventListener('input', (e) => {
+            state.whitelist.search = e.target.value;
+            state.whitelist.page = 1;
+            loadWhitelist();
+          });
+        }
+
+        const whitelistPrevBtn = document.getElementById('whitelist-prev');
+        if (whitelistPrevBtn) {
+          whitelistPrevBtn.onclick = () => { state.whitelist.page--; loadWhitelist(); };
+        }
+        const whitelistNextBtn = document.getElementById('whitelist-next');
+        if (whitelistNextBtn) {
+          whitelistNextBtn.onclick = () => { state.whitelist.page++; loadWhitelist(); };
+        }
+
         window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
         // --- Initial Load ---
         loadNotices();
         loadGlobal();
+        loadWhitelist();
       </script>
     </div>
   </body>

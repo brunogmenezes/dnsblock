@@ -603,7 +603,7 @@ router.get('/api/notices', ensurePermission('dashboard'), async (req, res) => {
     const [dataResult, countResult] = await Promise.all([
       pool.query(
         `SELECT id, notice_code, created_at, status,
-                (SELECT COUNT(*) FROM domains WHERE notice_id = notices.id AND is_active = true) as active_domains
+                (SELECT COUNT(*) FROM domains WHERE notice_id = notices.id AND is_active = true AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))) as active_domains
          FROM notices
          WHERE ${where}
          ORDER BY created_at DESC
@@ -641,7 +641,7 @@ router.get('/api/notices/:id/domains', ensurePermission('dashboard'), async (req
       params.push(`%${search}%`);
     }
 
-    where += ' AND is_active = true';
+    where += ' AND is_active = true AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE d.domain_name = w.domain_name OR (w.domain_name LIKE \'*.%\' AND (d.domain_name = SUBSTRING(w.domain_name FROM 3) OR d.domain_name LIKE \'%.\' || SUBSTRING(w.domain_name FROM 3))))';
 
     const [dataResult, countResult] = await Promise.all([
       pool.query(
@@ -653,7 +653,7 @@ router.get('/api/notices/:id/domains', ensurePermission('dashboard'), async (req
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, limit, offset]
       ),
-      pool.query(`SELECT COUNT(*) FROM domains WHERE ${where}`, params)
+      pool.query(`SELECT COUNT(*) FROM domains d WHERE ${where}`, params)
     ]);
 
     res.json({
@@ -689,7 +689,7 @@ router.get('/api/domains/global', ensurePermission('dashboard'), async (req, res
   const offset = (page - 1) * limit;
 
   try {
-    let where = 'd.is_active = true';
+    let where = 'd.is_active = true AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE d.domain_name = w.domain_name OR (w.domain_name LIKE \'*.%\' AND (d.domain_name = SUBSTRING(w.domain_name FROM 3) OR d.domain_name LIKE \'%.\' || SUBSTRING(w.domain_name FROM 3))))';
     let params = [];
     if (search) {
       where += ' AND d.domain_name ILIKE $1';
@@ -737,9 +737,9 @@ router.get('/dashboard', ensurePermission('dashboard'), async (req, res) => {
     const [{ rows: totalsRows }, { rows: noticesCountRows }] = await Promise.all([
       pool.query(
         `SELECT
-            COUNT(*) FILTER (WHERE is_active = true) AS total_count,
-            COUNT(*) FILTER (WHERE is_active = true AND notice_id IS NOT NULL) AS with_notice_count,
-            COUNT(*) FILTER (WHERE is_active = true AND notice_id IS NULL) AS without_notice_count
+            COUNT(*) FILTER (WHERE is_active = true AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))) AS total_count,
+            COUNT(*) FILTER (WHERE is_active = true AND notice_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))) AS with_notice_count,
+            COUNT(*) FILTER (WHERE is_active = true AND notice_id IS NULL AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))) AS without_notice_count
          FROM domains`
       ),
       pool.query('SELECT COUNT(*) AS total_notices FROM notices')
@@ -800,6 +800,32 @@ router.get('/dns/integration', ensurePermission('integration'), async (req, res)
       error: 'Erro interno ao carregar a integração DNS.',
       toast,
     });
+  }
+});
+
+router.get('/dns/blocklist/download', ensurePermission('integration'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT domain_name
+       FROM domains
+       WHERE is_active = true AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))
+       ORDER BY domain_name ASC`
+    );
+
+    const lines = result.rows.map((row) => `local-zone: "${row.domain_name}" always_nxdomain`);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="dnsblock.conf"');
+    
+    await logAudit(pool, {
+      req,
+      action: 'dns.download_blocklist',
+      details: { count: lines.length }
+    });
+
+    return res.send(lines.join('\n'));
+  } catch (error) {
+    console.error('Erro ao baixar lista de bloqueio:', error);
+    return res.status(500).send('Erro ao gerar lista de bloqueio para download.');
   }
 });
 
@@ -1206,7 +1232,7 @@ router.get('/dns/blocklist', async (req, res) => {
     const result = await pool.query(
       `SELECT domain_name
        FROM domains
-       WHERE is_active = true
+       WHERE is_active = true AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))
        ORDER BY domain_name ASC`
     );
 
@@ -1391,6 +1417,7 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
         `SELECT domain_name
          FROM domains
          WHERE is_active = true
+           AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))
            AND notice_id = $1
          ORDER BY domain_name ASC`,
         [scopedNoticeId]
@@ -1400,6 +1427,7 @@ router.post('/reports/nslookup/start', ensureAuthenticated, async (req, res) => 
         `SELECT domain_name
          FROM domains
          WHERE is_active = true
+           AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))
          ORDER BY domain_name ASC`
       );
     }
@@ -2073,6 +2101,145 @@ router.post('/api/domains/extract-from-attachment', ensurePermission('dashboard'
       error: 'Falha ao processar o arquivo.', 
       details: error.message 
     });
+  }
+});
+
+// --- Whitelist Endpoints ---
+
+router.get('/api/whitelist', ensurePermission('dashboard'), async (req, res) => {
+  const search = (req.query.search || '').trim();
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, parseInt(req.query.limit) || 10);
+  const offset = (page - 1) * limit;
+
+  try {
+    let where = '1=1';
+    let params = [];
+    if (search) {
+      where += ' AND w.domain_name ILIKE $1';
+      params.push(`%${search}%`);
+    }
+
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT w.id, w.domain_name, w.created_at, u.full_name as created_by_name
+         FROM whitelist w
+         LEFT JOIN users u ON w.created_by = u.id
+         WHERE ${where}
+         ORDER BY w.id DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      ),
+      pool.query(`SELECT COUNT(*) FROM whitelist w WHERE ${where}`, params)
+    ]);
+
+    res.json({
+      domains: dataResult.rows,
+      total: parseInt(countResult.rows[0].count),
+      page,
+      limit
+    });
+  } catch (error) {
+    console.error('Erro na API de whitelist:', error);
+    res.status(500).json({ error: 'Erro ao buscar whitelist' });
+  }
+});
+
+router.post('/api/whitelist', ensurePermission('whitelist.manage'), async (req, res) => {
+  const domainInput = (req.body.domainName || '').trim();
+  const userId = req.session.user.id;
+
+  let testDomain = domainInput.toLowerCase();
+  if (testDomain.startsWith('*.')) {
+    testDomain = testDomain.slice(2);
+  }
+
+  if (!domainInput || !isValidDomain(testDomain)) {
+    return res.status(400).json({ error: 'Informe um domínio válido (ex: google.com ou *.gov.br).' });
+  }
+
+  const domain = normalizeDomain(domainInput);
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Verifica se já está na whitelist
+    const existing = await client.query('SELECT id FROM whitelist WHERE domain_name = $1', [domain]);
+    if (existing.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Domínio já cadastrado na whitelist.' });
+    }
+
+    // Insere na whitelist
+    await client.query(
+      'INSERT INTO whitelist (domain_name, created_by) VALUES ($1, $2)',
+      [domain, userId]
+    );
+
+    // Cria nova versão da blocklist para alertar DNS
+    await createNextBlocklistVersion(client, userId, 'add-to-whitelist');
+
+    await client.query('COMMIT');
+
+    await logAudit(pool, {
+      req,
+      action: 'whitelist.add',
+      details: { domainName: domain }
+    });
+
+    return res.json({ success: true, message: `Domínio ${domain} adicionado à whitelist com sucesso.` });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Erro ao adicionar à whitelist:', error);
+    return res.status(500).json({ error: 'Erro ao adicionar domínio à whitelist.' });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/api/whitelist/delete', ensurePermission('whitelist.manage'), async (req, res) => {
+  const domainInput = (req.body.domainName || '').trim();
+  const userId = req.session.user.id;
+
+  if (!domainInput) {
+    return res.status(400).json({ error: 'Informe o domínio a ser removido.' });
+  }
+
+  const domain = normalizeDomain(domainInput);
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      'DELETE FROM whitelist WHERE domain_name = $1',
+      [domain]
+    );
+
+    if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Domínio não encontrado na whitelist.' });
+    }
+
+    // Cria nova versão da blocklist para alertar DNS
+    await createNextBlocklistVersion(client, userId, 'remove-from-whitelist');
+
+    await client.query('COMMIT');
+
+    await logAudit(pool, {
+      req,
+      action: 'whitelist.delete',
+      details: { domainName: domain }
+    });
+
+    return res.json({ success: true, message: `Domínio ${domain} removido da whitelist com sucesso.` });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Erro ao remover da whitelist:', error);
+    return res.status(500).json({ error: 'Erro ao remover domínio da whitelist.' });
+  } finally {
+    client.release();
   }
 });
 
