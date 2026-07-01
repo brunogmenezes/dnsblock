@@ -596,13 +596,13 @@ router.get('/api/notices', ensurePermission('dashboard'), async (req, res) => {
     let where = '1=1';
     let params = [];
     if (search) {
-      where += ' AND notice_code ILIKE $1';
+      where += ' AND (notice_code ILIKE $1 OR process_number ILIKE $1 OR requesting_organ ILIKE $1)';
       params.push(`%${search}%`);
     }
 
     const [dataResult, countResult] = await Promise.all([
       pool.query(
-        `SELECT id, notice_code, created_at, status,
+        `SELECT id, notice_code, process_number, requesting_organ, created_at, status,
                 (SELECT COUNT(*) FROM domains WHERE notice_id = notices.id AND is_active = true AND NOT EXISTS (SELECT 1 FROM whitelist w WHERE domains.domain_name = w.domain_name OR (w.domain_name LIKE '*.%' AND (domains.domain_name = SUBSTRING(w.domain_name FROM 3) OR domains.domain_name LIKE '%.' || SUBSTRING(w.domain_name FROM 3))))) as active_domains
          FROM notices
          WHERE ${where}
@@ -1012,26 +1012,31 @@ router.post(
   async (req, res) => {
     const noticeCode = fixEncoding(req.body.noticeCode || '').trim();
     const noticeName = fixEncoding(req.body.noticeName || '').trim();
+    const processNumber = fixEncoding(req.body.processNumber || '').trim();
+    const requestingOrgan = fixEncoding(req.body.requestingOrgan || '').trim();
     const blockStartDate = req.body.blockStartDate ? req.body.blockStartDate : null;
     const blockEndDate = req.body.blockEndDate ? req.body.blockEndDate : null;
     const noticeType = req.body.noticeType || 'block';
     const files = req.files;
 
     if (!noticeCode || !noticeName) {
+      const invalidDomainsReview = await getInvalidDomainsReview(req.session.user.id).catch(() => ({ rows: [], total: 0, page: 1, pageSize: 5, search: '', totalPages: 1 }));
       return res.status(400).render('domains-new', {
         title: 'Cadastrar Ofício - DNSBlock',
         user: req.session.user,
         message: null,
         error: 'Preencha o número e o nome do ofício.',
         inputNoticeCode: noticeCode,
+        invalidDomainsReview,
         toast: null,
       });
     }
 
     try {
       const noticeResult = await pool.query(
-        `INSERT INTO notices (notice_code, original_file_name, uploaded_by, block_start_date, block_end_date, notice_type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [noticeCode, noticeName, req.session.user.id, blockStartDate, blockEndDate, noticeType]
+        `INSERT INTO notices (notice_code, original_file_name, uploaded_by, block_start_date, block_end_date, notice_type, process_number, requesting_organ) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [noticeCode, noticeName, req.session.user.id, blockStartDate, blockEndDate, noticeType, processNumber || null, requestingOrgan || null]
       );
       
       const newNoticeId = noticeResult.rows[0].id;
@@ -1053,6 +1058,8 @@ router.post(
           noticeId: newNoticeId,
           noticeCode,
           noticeName,
+          processNumber,
+          requestingOrgan,
           fileCount: files ? files.length : 0
         },
       });
@@ -1061,12 +1068,14 @@ router.post(
       return res.redirect('/notices');
     } catch (error) {
       console.error('Erro ao cadastrar ofício:', error);
+      const invalidDomainsReview = await getInvalidDomainsReview(req.session.user.id).catch(() => ({ rows: [], total: 0, page: 1, pageSize: 5, search: '', totalPages: 1 }));
       return res.status(500).render('domains-new', {
         title: 'Cadastrar Ofício - DNSBlock',
         user: req.session.user,
         message: null,
         error: 'Erro interno ao cadastrar ofício.',
         inputNoticeCode: noticeCode,
+        invalidDomainsReview,
         toast: null,
       });
     }
@@ -1183,6 +1192,150 @@ router.post('/notices/:id/inform', ensurePermission('notices.inform'), async (re
   }
 });
 
+// Edita um ofício cadastrado
+router.post('/notices/:id/edit', ensurePermission('notices.create'), async (req, res) => {
+  const noticeId = Number(req.params.id);
+  const noticeCode = fixEncoding(req.body.noticeCode || '').trim();
+  const noticeName = fixEncoding(req.body.noticeName || '').trim();
+  const processNumber = fixEncoding(req.body.processNumber || '').trim();
+  const requestingOrgan = fixEncoding(req.body.requestingOrgan || '').trim();
+  const blockStartDate = req.body.blockStartDate ? req.body.blockStartDate : null;
+  const blockEndDate = req.body.blockEndDate ? req.body.blockEndDate : null;
+  const noticeType = req.body.noticeType || 'block';
+
+  if (!noticeId || !noticeCode || !noticeName) {
+    setFlash(req, 'error', 'Preencha o número e o nome do ofício.');
+    return res.redirect('/notices');
+  }
+
+  try {
+    const checkNotice = await pool.query('SELECT status FROM notices WHERE id = $1', [noticeId]);
+    if (checkNotice.rows.length === 0) {
+      setFlash(req, 'error', 'Ofício não encontrado.');
+      return res.redirect('/notices');
+    }
+    if (checkNotice.rows[0].status && checkNotice.rows[0].status !== 'registered') {
+      setFlash(req, 'error', 'Apenas ofícios no status "Cadastrado" podem ser editados.');
+      return res.redirect('/notices');
+    }
+
+    await pool.query(
+      `UPDATE notices 
+       SET notice_code = $1, 
+           original_file_name = $2, 
+           process_number = $3, 
+           requesting_organ = $4,
+           block_start_date = $5,
+           block_end_date = $6,
+           notice_type = $7
+       WHERE id = $8`,
+      [noticeCode, noticeName, processNumber || null, requestingOrgan || null, blockStartDate ? blockStartDate : null, blockEndDate ? blockEndDate : null, noticeType, noticeId]
+    );
+
+    await logAudit(pool, {
+      req,
+      action: 'notices.edit',
+      details: {
+        noticeId,
+        noticeCode,
+        noticeName,
+        processNumber,
+        requestingOrgan
+      },
+    });
+
+    setFlash(req, 'success', 'Ofício editado com sucesso!');
+    return res.redirect('/notices');
+  } catch (error) {
+    console.error('Erro ao editar ofício:', error);
+    setFlash(req, 'error', 'Erro interno ao editar ofício.');
+    return res.redirect('/notices');
+  }
+});
+
+// Exclui um ofício cadastrado
+router.post('/notices/:id/delete', ensurePermission('notices.delete_full'), async (req, res) => {
+  const noticeId = Number(req.params.id);
+
+  if (!noticeId) {
+    setFlash(req, 'error', 'ID do ofício inválido.');
+    return res.redirect('/notices');
+  }
+
+  try {
+    const checkNotice = await pool.query('SELECT status, notice_code FROM notices WHERE id = $1', [noticeId]);
+    if (checkNotice.rows.length === 0) {
+      setFlash(req, 'error', 'Ofício não encontrado.');
+      return res.redirect('/notices');
+    }
+    const notice = checkNotice.rows[0];
+    if (notice.status && notice.status !== 'registered') {
+      setFlash(req, 'error', 'Apenas ofícios no status "Cadastrado" podem ser excluídos.');
+      return res.redirect('/notices');
+    }
+
+    // Busca os arquivos para exclusão do disco
+    const filesResult = await pool.query('SELECT stored_file_name FROM notice_files WHERE notice_id = $1', [noticeId]);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 1. Exclui domínios vinculados (o que remove domain_executions por cascade)
+      await client.query('DELETE FROM domains WHERE notice_id = $1', [noticeId]);
+
+      // 2. Exclui IPs vinculados (se houver)
+      await client.query('DELETE FROM ips WHERE notice_id = $1', [noticeId]);
+
+      // 3. Exclui relatórios vinculados
+      await client.query('DELETE FROM blocklist_reports WHERE notice_id = $1', [noticeId]);
+
+      // 4. Exclui o ofício (o que remove notice_files do banco por cascade)
+      await client.query('DELETE FROM notices WHERE id = $1', [noticeId]);
+
+      await client.query('COMMIT');
+    } catch (transactionError) {
+      await client.query('ROLLBACK');
+      throw transactionError;
+    } finally {
+      client.release();
+    }
+
+    // Exclui os arquivos físicos do disco
+    if (filesResult.rows.length > 0) {
+      for (const fileRow of filesResult.rows) {
+        if (fileRow.stored_file_name) {
+          const filePath = path.join(uploadsDir, fileRow.stored_file_name);
+          try {
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          } catch (fileErr) {
+            console.error(`Erro ao remover arquivo físico ${fileRow.stored_file_name}:`, fileErr);
+          }
+        }
+      }
+    }
+
+    await logAudit(pool, {
+      req,
+      action: 'notices.delete_full',
+      details: {
+        noticeId,
+        noticeCode: notice.notice_code
+      },
+    });
+
+    setFlash(req, 'success', 'Ofício excluído com sucesso!');
+    return res.redirect('/notices');
+  } catch (error) {
+    console.error('Erro ao excluir ofício:', error);
+    setFlash(req, 'error', 'Erro interno ao excluir ofício.');
+    return res.redirect('/notices');
+  }
+});
+
+
 router.get('/notices/:id/download/:fileId', ensureAuthenticated, async (req, res) => {
   const noticeId = Number(req.params.id);
   const fileId = Number(req.params.fileId);
@@ -1225,6 +1378,63 @@ router.get('/notices/:id/download/:fileId', ensureAuthenticated, async (req, res
     return res.status(500).send('Erro interno ao baixar arquivo.');
   }
 });
+
+// Exclui um anexo individual de um ofício (apenas se status = registered)
+router.post('/notices/:id/files/:fileId/delete', ensurePermission('notices.add_files'), async (req, res) => {
+  const noticeId = Number(req.params.id);
+  const fileId = Number(req.params.fileId);
+
+  if (!Number.isInteger(noticeId) || noticeId <= 0 || !Number.isInteger(fileId) || fileId <= 0) {
+    return res.status(400).json({ error: 'Parâmetros inválidos.' });
+  }
+
+  try {
+    // Verifica se o ofício existe e está no status registrado
+    const noticeRes = await pool.query('SELECT status FROM notices WHERE id = $1', [noticeId]);
+    if (noticeRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Ofício não encontrado.' });
+    }
+    if (noticeRes.rows[0].status && noticeRes.rows[0].status !== 'registered') {
+      return res.status(403).json({ error: 'Apenas ofícios no status "Cadastrado" permitem exclusão de anexos.' });
+    }
+
+    // Busca o arquivo
+    const fileRes = await pool.query(
+      'SELECT stored_file_name, original_file_name FROM notice_files WHERE id = $1 AND notice_id = $2',
+      [fileId, noticeId]
+    );
+    if (fileRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Anexo não encontrado.' });
+    }
+
+    const { stored_file_name, original_file_name } = fileRes.rows[0];
+
+    // Remove do banco
+    await pool.query('DELETE FROM notice_files WHERE id = $1', [fileId]);
+
+    // Remove do disco
+    if (stored_file_name) {
+      const filePath = path.join(uploadsDir, stored_file_name);
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (fileErr) {
+        console.error(`Erro ao remover arquivo físico ${stored_file_name}:`, fileErr);
+      }
+    }
+
+    await logAudit(pool, {
+      req,
+      action: 'notices.delete_file',
+      details: { noticeId, fileId, original_file_name },
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao excluir anexo do ofício:', error);
+    return res.status(500).json({ error: 'Erro interno ao excluir anexo.' });
+  }
+});
+
 
 router.get('/dns/blocklist', async (req, res) => {
   return ensureDnsApiToken(req, res, async () => {
@@ -1877,13 +2087,13 @@ router.get('/notices', ensurePermission('notices'), async (req, res) => {
   let where = '1=1';
   let params = [];
   if (search) {
-    where += ' AND (n.notice_code ILIKE $1)';
+    where += ' AND (n.notice_code ILIKE $1 OR n.process_number ILIKE $1 OR n.requesting_organ ILIKE $1)';
     params.push(`%${search}%`);
   }
   const [dataResult, statsResult] = await Promise.all([
     pool.query(
-      `SELECT n.id, n.notice_code, n.original_file_name, n.created_at, n.uploaded_by, n.id as notice_id,
-              n.status, n.informed_at, n.informed_by, n.notice_type,
+      `SELECT n.id, n.notice_code, n.process_number, n.requesting_organ, n.original_file_name, n.created_at, n.uploaded_by, n.id as notice_id,
+              n.status, n.informed_at, n.informed_by, n.notice_type, n.block_start_date, n.block_end_date,
               (SELECT username FROM users WHERE id = n.uploaded_by) as username,
               (SELECT username FROM users WHERE id = n.informed_by) as informer_username,
               COALESCE((SELECT COUNT(*) FROM domains d WHERE d.notice_id = n.id), 0) as total_domains,

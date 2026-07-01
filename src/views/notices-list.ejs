@@ -61,6 +61,24 @@
       }
       .files-container::-webkit-scrollbar { width: 4px; }
       .files-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+      /* Compact Table styling to prevent horizontal scrollbar */
+      #notices-table th, 
+      #notices-table td {
+        padding: 6px 8px;
+        font-size: 0.8rem;
+        vertical-align: middle;
+      }
+      #notices-table th {
+        font-size: 0.72rem;
+        white-space: nowrap;
+      }
+      .btn-action-compact {
+        padding: 3px 6px !important;
+        font-size: 0.72rem !important;
+        height: auto !important;
+        line-height: 1.2 !important;
+      }
     </style>
   </head>
   <body class="app-layout bg-grid">
@@ -123,6 +141,18 @@
             <form id="form-add-notice" method="post" action="/notices" enctype="multipart/form-data" class="form-stack" style="gap:10px;">
               <label for="noticeCode">Número do Ofício <span style="color:var(--danger);">*</span></label>
               <input id="noticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" required />
+              
+              <div style="display:flex; gap:12px;">
+                <div style="flex:1;">
+                  <label for="processNumber">Número do Processo</label>
+                  <input id="processNumber" name="processNumber" type="text" placeholder="Ex.: 1234567-89.2026.8.26.0000" />
+                </div>
+                <div style="flex:1;">
+                  <label for="requestingOrgan">Órgão Solicitante</label>
+                  <input id="requestingOrgan" name="requestingOrgan" type="text" placeholder="Ex.: Tribunal de Justiça" />
+                </div>
+              </div>
+
               <label for="noticeName">Nome do Ofício <span style="color:var(--danger);">*</span></label>
               <input id="noticeName" name="noticeName" type="text" placeholder="Nome do ofício" required />
               
@@ -159,10 +189,64 @@
           </div>
         </div>
 
+        <!-- Modal de edição de ofício -->
+        <div id="modal-edit-notice" class="modal" style="display:none;position:fixed;z-index:1000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+          <div class="modal-content" style="background:#fff;padding:32px 24px 24px 24px;border-radius:8px;min-width:350px;max-width:95vw;max-height:95vh;overflow-y:auto;box-shadow:0 2px 16px #0002;position:relative;">
+            <button id="close-modal-edit-notice" style="position:absolute;top:8px;right:12px;background:none;border:none;font-size:1.5rem;cursor:pointer;">&times;</button>
+            <h2 style="margin-top:0;margin-bottom:18px;">Editar ofício</h2>
+            <form id="form-edit-notice" method="post" action="" class="form-stack" style="gap:10px;">
+              <label for="editNoticeCode">Número do Ofício <span style="color:var(--danger);">*</span></label>
+              <input id="editNoticeCode" name="noticeCode" type="text" placeholder="Ex.: Ofício 123/2026" required />
+              
+              <div style="display:flex; gap:12px;">
+                <div style="flex:1;">
+                  <label for="editProcessNumber">Número do Processo</label>
+                  <input id="editProcessNumber" name="processNumber" type="text" placeholder="Ex.: 1234567-89.2026.8.26.0000" />
+                </div>
+                <div style="flex:1;">
+                  <label for="editRequestingOrgan">Órgão Solicitante</label>
+                  <input id="editRequestingOrgan" name="requestingOrgan" type="text" placeholder="Ex.: Tribunal de Justiça" />
+                </div>
+              </div>
+
+              <label for="editNoticeName">Nome do Ofício <span style="color:var(--danger);">*</span></label>
+              <input id="editNoticeName" name="noticeName" type="text" placeholder="Nome do ofício" required />
+              
+              <div style="display:flex; gap:12px;">
+                <div style="flex:1;">
+                  <label for="editBlockStartDate">Início do Bloqueio (opcional)</label>
+                  <input id="editBlockStartDate" name="blockStartDate" type="date" />
+                </div>
+                <div style="flex:1;">
+                  <label for="editBlockEndDate">Término do Bloqueio (opcional)</label>
+                  <input id="editBlockEndDate" name="blockEndDate" type="date" />
+                </div>
+              </div>
+
+              <div style="margin: 10px 0;">
+                <label style="font-weight:600; display:block; margin-bottom:8px;">Tipo do Ofício:</label>
+                <div style="display:flex; gap:20px;">
+                  <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                    <input type="radio" id="editNoticeTypeBlock" name="noticeType" value="block" style="width:18px; height:18px;"> Bloqueio
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                    <input type="radio" id="editNoticeTypeUnblock" name="noticeType" value="unblock" style="width:18px; height:18px;"> Desbloqueio
+                  </label>
+                </div>
+              </div>
+
+              <div style="display:flex;gap:12px;margin-top:10px;">
+                <button type="submit" class="btn-primary">Salvar Alterações</button>
+                <button type="button" id="cancel-modal-edit-notice" class="btn-secondary">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
         <form method="get" action="/notices" class="table-controls" style="display:flex;gap:12px;align-items:flex-end;margin-bottom:12px;">
           <div style="flex:2;min-width:220px;max-width:400px;">
             <label for="search-input" style="margin-bottom: 4px;">Buscar Ofício</label>
-            <input type="text" name="search" id="search-input" value="<%= search || '' %>" placeholder="Número do ofício..." style="padding:8px 12px;font-size:1rem;" autocomplete="off" />
+            <input type="text" name="search" id="search-input" value="<%= search || '' %>" placeholder="Número, processo ou órgão..." style="padding:8px 12px;font-size:1rem;" autocomplete="off" />
           </div>
           <div>
             <label for="notices-page-size" style="margin-bottom: 4px;">Exibir</label>
@@ -177,38 +261,47 @@
         </form>
 
         <div class="table-container">
-          <table>
+          <table id="notices-table">
             <thead>
               <tr>
                 <th style="width: 140px;">Número do Ofício</th>
+                <th style="width: 130px;">Processo</th>
+                <th style="width: 140px;">Órgão Solicitante</th>
                 <th style="min-width: 200px;">Nome do Ofício / Anexos</th>
-                <th style="width: 110px; text-align: center;">Tipo</th>
-                <th style="width: 150px;">Cadastro</th>
-                <th style="width: 120px;">Por</th>
-                <th style="width: 100px; text-align: center;">Alvos</th>
-                <th style="width: 120px; text-align: center;">Status</th>
+                <th style="width: 90px; text-align: center;">Tipo</th>
+                <th style="width: 110px;">Cadastro</th>
+                <th style="width: 90px;">Por</th>
+                <th style="width: 80px; text-align: center;">Alvos</th>
+                <th style="width: 100px; text-align: center;">Status</th>
                 <th style="width: 220px; text-align: center;">Ações</th>
               </tr>
             </thead>
             <tbody id="notices-body">
               <% if (!notices || notices.length === 0) { %>
                 <tr>
-                  <td colspan="7">Nenhum ofício cadastrado.</td>
+                  <td colspan="10">Nenhum ofício cadastrado.</td>
                 </tr>
               <% } else { %>
                 <% notices.forEach(function (notice) { %>
                   <tr class="status-<%= notice.status || 'registered' %> data-row">
-                    <td><%= notice.notice_code %></td>
+                    <td style="word-break: break-word; white-space: normal; line-height: 1.3;"><%= notice.notice_code %></td>
+                    <td style="word-break: break-all; white-space: normal; line-height: 1.3;"><%= notice.process_number || '-' %></td>
+                    <td style="word-break: break-word; white-space: normal; line-height: 1.3;"><%= notice.requesting_organ || '-' %></td>
                     <td>
-                      <div style="font-weight: 600; margin-bottom: 6px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<%= notice.original_file_name %>">
+                      <div style="font-weight: 600; margin-bottom: 6px; word-break: break-word; white-space: normal; line-height: 1.3;" title="<%= notice.original_file_name %>">
                         <%= notice.original_file_name %>
                       </div>
                       <% if (notice.files && notice.files.length > 0) { %>
                         <div style="max-height: 60px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-soft);" class="files-container">
                           <% notice.files.forEach(function(file, idx) { %>
-                            <a href="/notices/<%= notice.id %>/download/<%= file.id %>" class="btn-secondary" style="font-size:0.75rem; padding:1px 6px; white-space: nowrap; border-radius: 4px; height: 22px; display: inline-flex; align-items: center;" title="<%= file.original_file_name %>">
-                              <%= file.original_file_name.length > 15 ? file.original_file_name.slice(0, 12) + '...' : file.original_file_name %>
-                            </a>
+                            <span style="display:inline-flex;align-items:center;gap:2px;">
+                              <a href="/notices/<%= notice.id %>/download/<%= file.id %>" class="btn-secondary" style="font-size:0.75rem; padding:1px 6px; white-space: nowrap; border-radius: 4px 0 0 4px; height: 22px; display: inline-flex; align-items: center;" title="<%= file.original_file_name %>">
+                                <%= file.original_file_name.length > 15 ? file.original_file_name.slice(0, 12) + '...' : file.original_file_name %>
+                              </a>
+                              <% if (!notice.status || notice.status === 'registered') { %>
+                                <button class="btn-delete-file" data-notice-id="<%= notice.id %>" data-file-id="<%= file.id %>" data-file-name="<%= file.original_file_name %>" title="Excluir anexo" style="background:var(--danger);color:#fff;border:none;border-radius:0 4px 4px 0;height:22px;padding:0 5px;cursor:pointer;font-size:0.75rem;line-height:1;">×</button>
+                              <% } %>
+                            </span>
                           <% }) %>
                         </div>
                       <% } else { %>
@@ -249,29 +342,49 @@
                       <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;align-items:center;">
                         <% if (notice.status !== 'informed') { %>
                           <div style="display:flex;gap:6px;flex-direction:column;width:100%;">
-                            <div style="display:flex;gap:4px;">
+                            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;">
                               <% if (hasPermission('notices.add_domains')) { %>
-                                <button class="btn-primary btn-add-domains" 
+                                <button class="btn-primary btn-add-domains btn-action-compact" 
                                         data-notice-id="<%= notice.id %>" 
                                         data-notice-code="<%= notice.notice_code %>"
                                         data-notice-type="<%= notice.notice_type || 'block' %>"
-                                        style="padding:4px 8px;font-size:0.8rem;flex:1;white-space:nowrap;">+ Domínios</button>
-                                <button class="btn-primary btn-add-ips" 
+                                        style="flex:1;white-space:nowrap;">+ Domínios</button>
+                                <button class="btn-primary btn-add-ips btn-action-compact" 
                                         data-notice-id="<%= notice.id %>" 
                                         data-notice-code="<%= notice.notice_code %>"
                                         data-notice-type="<%= notice.notice_type || 'block' %>"
-                                        style="padding:4px 8px;font-size:0.8rem;flex:1;background:#6366f1;border-color:#6366f1;white-space:nowrap;">+ IPs</button>
+                                        style="flex:1;background:#6366f1;border-color:#6366f1;white-space:nowrap;">+ IPs</button>
                               <% } %>
                               <% if (hasPermission('notices.add_files')) { %>
-                                <button class="btn-secondary btn-add-files" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 8px;font-size:0.8rem;flex:0.8;white-space:nowrap;">Anexar</button>
+                                <button class="btn-secondary btn-add-files btn-action-compact" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="flex:0.8;white-space:nowrap;">Anexar</button>
                               <% } %>
                             </div>
                             <% if (hasPermission('notices.inform')) { %>
                               <% if (notice.total_domains > 0 || notice.total_ips > 0) { %>
-                                <button class="btn-info btn-inform-notice" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="padding:4px 10px;font-size:0.8rem;background:var(--info);color:#fff;border-color:var(--info);width:100%;margin-top:4px;">Marcar Respondido</button>
+                                <button class="btn-info btn-inform-notice btn-action-compact" data-notice-id="<%= notice.id %>" data-notice-code="<%= notice.notice_code %>" style="background:var(--info);color:#fff;border-color:var(--info);width:100%;margin-top:4px;">Marcar Respondido</button>
                               <% } else { %>
                                 <span style="color: var(--muted); font-size: 0.75rem; font-style: italic; margin-top: 4px;">Adicione alvos para responder</span>
                               <% } %>
+                            <% } %>
+                            <% if (!notice.status || notice.status === 'registered') { %>
+                              <div style="display:flex;gap:4px;width:100%;margin-top:4px;">
+                                <button class="btn-secondary btn-edit-notice btn-action-compact" 
+                                        data-notice-id="<%= notice.id %>" 
+                                        data-notice-code="<%= notice.notice_code %>"
+                                        data-process-number="<%= notice.process_number || '' %>"
+                                        data-requesting-organ="<%= notice.requesting_organ || '' %>"
+                                        data-notice-name="<%= notice.original_file_name %>"
+                                        data-block-start-date="<%= notice.block_start_date ? (d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)(new Date(notice.block_start_date)) : '' %>"
+                                        data-block-end-date="<%= notice.block_end_date ? (d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)(new Date(notice.block_end_date)) : '' %>"
+                                        data-notice-type="<%= notice.notice_type || 'block' %>"
+                                        style="flex:1;">Editar</button>
+                                <% if (hasPermission('notices.delete_full')) { %>
+                                  <button class="btn-danger btn-delete-notice btn-action-compact" 
+                                          data-notice-id="<%= notice.id %>" 
+                                          data-notice-code="<%= notice.notice_code %>"
+                                          style="flex:1;background:var(--danger);border-color:var(--danger);color:#fff;">Excluir</button>
+                                <% } %>
+                              </div>
                             <% } %>
                           </div>
                         <% } else { %>
@@ -451,6 +564,21 @@
       </div>
     </div>
 
+    <!-- Modal de Confirmação Personalizado (substitui confirm() nativo) -->
+    <div id="modal-confirm" style="display:none;position:fixed;z-index:9000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+      <div style="background:#fff;padding:32px 28px;border-radius:16px;width:90%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,0.18);position:relative;text-align:center;animation:modalIn 0.25s cubic-bezier(0.16,1,0.3,1);">
+        <div style="background:#fee2e2;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+        </div>
+        <h3 id="modal-confirm-title" style="margin:0 0 10px;font-size:1.15rem;font-weight:800;color:var(--text);">Confirmar exclusão</h3>
+        <p id="modal-confirm-message" style="margin:0 0 24px;color:var(--muted);font-size:0.95rem;line-height:1.5;"></p>
+        <div style="display:flex;gap:12px;">
+          <button id="modal-confirm-cancel" class="btn-secondary" style="flex:1;padding:11px;font-weight:600;border-radius:10px;">Cancelar</button>
+          <button id="modal-confirm-ok" style="flex:1;padding:11px;font-weight:700;border-radius:10px;background:#ef4444;border:1.5px solid #ef4444;color:#fff;cursor:pointer;font-size:0.95rem;">Excluir</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal para Adicionar IPs em Massa -->
     <div id="modal-add-ips" class="modal" style="display:none;position:fixed;z-index:2000;left:0;top:0;width:100vw;height:100vh;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
       <div class="modal-content" style="background:#fff;padding:36px 28px 28px 28px;border-radius:12px;width:95%;max-width:900px;max-height:95vh;overflow-y:auto;box-shadow:0 4px 24px #0003;position:relative;">
@@ -548,8 +676,151 @@
     </div>
 
     <script>
+      // ============================================================
+      // MODAL CONFIRM personalizado (evita bloqueio do confirm() nativo)
+      // ============================================================
+      (function() {
+        var _confirmCallback = null;
+        var modalConfirm = document.getElementById('modal-confirm');
+        var confirmTitle = document.getElementById('modal-confirm-title');
+        var confirmMsg = document.getElementById('modal-confirm-message');
+        var confirmOk = document.getElementById('modal-confirm-ok');
+        var confirmCancel = document.getElementById('modal-confirm-cancel');
+
+        function showConfirm(title, message, okLabel, callback) {
+          confirmTitle.textContent = title;
+          confirmMsg.textContent = message;
+          confirmOk.textContent = okLabel || 'Excluir';
+          _confirmCallback = callback;
+          modalConfirm.style.display = 'flex';
+        }
+
+        function hideConfirm() {
+          modalConfirm.style.display = 'none';
+          _confirmCallback = null;
+        }
+
+        confirmOk.addEventListener('click', function() {
+          var cb = _confirmCallback;
+          hideConfirm();
+          if (cb) cb();
+        });
+        confirmCancel.addEventListener('click', hideConfirm);
+        modalConfirm.addEventListener('click', function(e) {
+          if (e.target === modalConfirm) hideConfirm();
+        });
+
+        window.showConfirm = showConfirm;
+      })();
+
+      // ============================================================
+      // DELEGAÇÃO DE CLIQUES - registrada primeiro para ser robusta
+      // ============================================================
+      document.addEventListener('click', function(e) {
+        // Editar ofício
+        const editBtn = e.target.closest('.btn-edit-notice');
+        if (editBtn) {
+          e.stopPropagation();
+          const noticeId = editBtn.getAttribute('data-notice-id');
+          const noticeCode = editBtn.getAttribute('data-notice-code');
+          const processNumber = editBtn.getAttribute('data-process-number');
+          const requestingOrgan = editBtn.getAttribute('data-requesting-organ');
+          const noticeName = editBtn.getAttribute('data-notice-name');
+          const blockStartDate = editBtn.getAttribute('data-block-start-date');
+          const blockEndDate = editBtn.getAttribute('data-block-end-date');
+          const noticeType = editBtn.getAttribute('data-notice-type');
+
+          const form = document.getElementById('form-edit-notice');
+          if (form) form.action = '/notices/' + noticeId + '/edit';
+          const setVal = function(id, val) { const el = document.getElementById(id); if (el) el.value = val || ''; };
+          setVal('editNoticeCode', noticeCode);
+          setVal('editProcessNumber', processNumber);
+          setVal('editRequestingOrgan', requestingOrgan);
+          setVal('editNoticeName', noticeName);
+          setVal('editBlockStartDate', blockStartDate);
+          setVal('editBlockEndDate', blockEndDate);
+          const typeBlock = document.getElementById('editNoticeTypeBlock');
+          const typeUnblock = document.getElementById('editNoticeTypeUnblock');
+          if (noticeType === 'unblock') { if (typeUnblock) typeUnblock.checked = true; }
+          else { if (typeBlock) typeBlock.checked = true; }
+          const modal = document.getElementById('modal-edit-notice');
+          if (modal) modal.style.display = 'flex';
+          return;
+        }
+
+        // Excluir ofício
+        const deleteBtn = e.target.closest('.btn-delete-notice');
+        if (deleteBtn) {
+          e.stopPropagation();
+          const noticeId = deleteBtn.getAttribute('data-notice-id');
+          const noticeCode = deleteBtn.getAttribute('data-notice-code');
+          window.showConfirm(
+            'Excluir Ofício',
+            'Deseja realmente excluir o ofício "' + noticeCode + '"? Esta ação removerá permanentemente o ofício, seus anexos e domínios vinculados.',
+            'Excluir',
+            function() {
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = '/notices/' + noticeId + '/delete';
+              document.body.appendChild(form);
+              form.submit();
+            }
+          );
+          return;
+        }
+
+        // Excluir anexo individual
+        const deleteFileBtn = e.target.closest('.btn-delete-file');
+        if (deleteFileBtn) {
+          e.stopPropagation();
+          const noticeId = deleteFileBtn.getAttribute('data-notice-id');
+          const fileId = deleteFileBtn.getAttribute('data-file-id');
+          const fileName = deleteFileBtn.getAttribute('data-file-name');
+          window.showConfirm(
+            'Excluir Anexo',
+            'Deseja excluir o anexo "' + fileName + '"? Esta ação não pode ser desfeita.',
+            'Excluir',
+            function() {
+              fetch('/notices/' + noticeId + '/files/' + fileId + '/delete', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    const span = deleteFileBtn.closest('span');
+                    if (span) span.remove();
+                  } else {
+                    alert(data.error || 'Erro ao excluir anexo.');
+                  }
+                })
+                .catch(function() { alert('Erro de comunicação ao excluir anexo.'); });
+            }
+          );
+          return;
+        }
+
+        // Fechar modal de edição clicando fora
+        const mEdit = document.getElementById('modal-edit-notice');
+        if (mEdit && e.target === mEdit) {
+          mEdit.style.display = 'none';
+          const fe = document.getElementById('form-edit-notice');
+          if (fe) fe.reset();
+        }
+
+        // Fechar modal de cadastro clicando fora
+        const mAdd = document.getElementById('modal-add-notice');
+        if (mAdd && e.target === mAdd) {
+          mAdd.style.display = 'none';
+          const fa = document.getElementById('form-add-notice');
+          if (fa) fa.reset();
+        }
+      });
+
+      // ============================================================
+      // FIM DA DELEGAÇÃO - restante do script abaixo
+      // ============================================================
+
             const IP_REGEX_V4 = /^(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
             const IP_REGEX_V6 = /^(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}$|^(?:[A-F0-9]{1,4}:){1,7}:|^(?:[A-F0-9]{1,4}:){1,6}:[A-F0-9]{1,4}$|^(?:[A-F0-9]{1,4}:){1,5}(?::[A-F0-9]{1,4}){1,2}$|^(?:[A-F0-9]{1,4}:){1,4}(?::[A-F0-9]{1,4}){1,3}$|^(?:[A-F0-9]{1,4}:){1,3}(?::[A-F0-9]{1,4}){1,4}$|^(?:[A-F0-9]{1,4}:){1,2}(?::[A-F0-9]{1,4}){1,5}$|^[A-F0-9]{1,4}:(?::[A-F0-9]{1,4}){1,6}$|^:(?::[A-F0-9]{1,4}){1,7}$|^:$/i;
+
 
             const modalAddDomains = document.getElementById('modal-add-domains');
             const closeModalAddDomains = document.getElementById('close-modal-add-domains');
@@ -1203,19 +1474,32 @@
       const closeModalAddNotice = document.getElementById('close-modal-add-notice');
       const cancelModalAddNotice = document.getElementById('cancel-modal-add-notice');
 
-      btnAddNotice.onclick = function() {
-        modalAddNotice.style.display = 'flex';
-      };
-      closeModalAddNotice.onclick = cancelModalAddNotice.onclick = function() {
-        modalAddNotice.style.display = 'none';
-        document.getElementById('form-add-notice').reset();
-      };
-      window.onclick = function(event) {
-        if (event.target === modalAddNotice) {
+      if (btnAddNotice) {
+        btnAddNotice.onclick = function() {
+          modalAddNotice.style.display = 'flex';
+        };
+      }
+      if (closeModalAddNotice && cancelModalAddNotice) {
+        closeModalAddNotice.onclick = cancelModalAddNotice.onclick = function() {
           modalAddNotice.style.display = 'none';
           document.getElementById('form-add-notice').reset();
-        }
-      };
+        };
+      }
+
+      // Modal de edição de ofício
+      const modalEditNotice = document.getElementById('modal-edit-notice');
+      const closeModalEditNotice = document.getElementById('close-modal-edit-notice');
+      const cancelModalEditNotice = document.getElementById('cancel-modal-edit-notice');
+
+      if (closeModalEditNotice && cancelModalEditNotice) {
+        closeModalEditNotice.onclick = cancelModalEditNotice.onclick = function() {
+          modalEditNotice.style.display = 'none';
+          document.getElementById('form-edit-notice').reset();
+        };
+      }
+
+
+
 
       // Paginação Cliente-side para Ofícios
       (function() {

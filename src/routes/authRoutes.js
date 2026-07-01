@@ -876,10 +876,14 @@ router.get('/audit', ensurePermission('audit'), async (req, res) => {
 });
 
 router.post('/logout', async (req, res) => {
-  await logAudit(pool, {
-    req,
-    action: 'auth.logout',
-  });
+  try {
+    await logAudit(pool, {
+      req,
+      action: 'auth.logout',
+    });
+  } catch (auditError) {
+    console.error('Erro ao registrar log de logout:', auditError);
+  }
 
   req.session.destroy(() => {
     res.clearCookie('dnsblock.sid');
